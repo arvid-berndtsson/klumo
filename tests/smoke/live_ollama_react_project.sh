@@ -9,8 +9,6 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-bash tests/projects/react-buggy/scripts/restore_buggy.sh
 bash tests/projects/react-buggy/scripts/run_self_heal_ollama.sh
-bash tests/projects/react-buggy/scripts/restore_buggy.sh
 
 echo "[live-ollama-react] ok"

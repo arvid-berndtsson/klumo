@@ -64,6 +64,52 @@ fn run_js_file_works_without_llm() {
 }
 
 #[test]
+fn run_script_name_from_beeno_json_executes_script() {
+    let dir = tempdir().expect("tempdir should work");
+    let config = dir.path().join("beeno.json");
+    fs::write(
+        &config,
+        r#"{
+  "scripts": {
+    "build": "echo script-ok"
+  }
+}"#,
+    )
+    .expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .args(["run", "build"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("script-ok"));
+}
+
+#[test]
+fn run_file_target_with_scripts_present_runs_file() {
+    let dir = tempdir().expect("tempdir should work");
+    let config = dir.path().join("beeno.json");
+    let path = dir.path().join("hello.js");
+    fs::write(
+        &config,
+        r#"{
+  "scripts": {
+    "build": "echo script-ok"
+  }
+}"#,
+    )
+    .expect("write should work");
+    fs::write(&path, "40 + 2").expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .args(["run", path.to_str().expect("path utf8")])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("42"));
+}
+
+#[test]
 fn bundle_js_file_writes_output() {
     let dir = tempdir().expect("tempdir should work");
     let input = dir.path().join("hello.js");

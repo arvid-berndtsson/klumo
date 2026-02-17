@@ -1,0 +1,11 @@
+{
+  "name": "jsr-is-char-smoke",
+  "version": "0.0.0",
+  "dependencies": {
+    "@arvid/is-char": "latest"
+  },
+  "scripts": {
+    "start": "cargo beeno run src/main.js --provider ollama",
+    "bundle": "cargo beeno bundle src/main.js --provider ollama --output dist/main.bundle.js"
+  }
+}

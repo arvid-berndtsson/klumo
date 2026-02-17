@@ -36,5 +36,5 @@ if cmp -s "$PROJECT_DIR/src/main.jsx" "$PROJECT_DIR/src/main.jsx.beeno.bak"; the
   exit 1
 fi
 
-echo "[react-buggy] self-heal changed file; use restore script to reset baseline"
-echo "[react-buggy] restore command: bash tests/projects/react-buggy/scripts/restore_buggy.sh"
+echo "[react-buggy] self-heal changed file"
+echo "[react-buggy] restore manually from git if needed"

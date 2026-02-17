@@ -5,13 +5,8 @@
     "@arvid/is-char": "latest"
   },
   "scripts": {
-    "beeno:run": "bash ./scripts/run_beeno.sh",
-    "beeno:bundle": "bash ./scripts/bundle_beeno.sh",
-    "restore:buggy": "bash ./scripts/restore_buggy.sh",
-    "beeno:self-heal:ollama": "bash ./scripts/run_self_heal_ollama.sh"
-  },
-  "provider": "auto",
-  "lang": "js",
-  "force_llm": false,
-  "progress": "auto"
+    "start": "cargo beeno run src/main.js",
+    "bundle": "cargo beeno bundle src/main.js --output dist/main.bundle.js",
+    "self-heal:ollama": "BEENO_RUN_LIVE_TESTS=1 cargo beeno run src/main.jsx --self-heal --max-heal-attempts 2 --provider ollama"
+  }
 }

@@ -1337,6 +1337,42 @@ fn build_engine() -> Result<Box<dyn JsEngine>> {
     }
 }
 
+fn resolve_run_script_target(config: Option<&Path>, target: &Path) -> Result<Option<String>> {
+    let script_name = match target.to_str() {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let cwd = std::env::current_dir().context("failed resolving current directory")?;
+    let file_cfg = load_file_config(config, &cwd)?;
+    Ok(file_cfg
+        .and_then(|cfg| cfg.scripts)
+        .and_then(|scripts| scripts.get(script_name).cloned()))
+}
+
+fn run_script_command(script_name: &str, command_line: &str) -> Result<()> {
+    #[cfg(windows)]
+    let status = Command::new("cmd")
+        .args(["/C", command_line])
+        .status()
+        .with_context(|| format!("failed running script '{script_name}'"))?;
+
+    #[cfg(not(windows))]
+    let status = Command::new("sh")
+        .args(["-lc", command_line])
+        .status()
+        .with_context(|| format!("failed running script '{script_name}'"))?;
+
+    if status.success() {
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "script '{}' failed with exit status {}",
+        script_name,
+        status
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_command(
     file: PathBuf,
@@ -1353,6 +1389,11 @@ fn run_command(
     ollama_url: Option<String>,
     model: Option<String>,
 ) -> Result<()> {
+    if let Some(script) = resolve_run_script_target(config.as_deref(), &file)? {
+        let script_name = file.to_string_lossy().to_string();
+        return run_script_command(&script_name, &script);
+    }
+
     let cli_overrides = CliRunOverrides {
         provider: provider.map(ProviderArg::as_setting),
         ollama_url,

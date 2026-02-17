@@ -299,7 +299,7 @@ mod tests {
   "name":"demo",
   "version":"0.0.1",
   "dependencies":{"@arvid/is-char":"latest"},
-  "scripts":{"beeno:run":"cargo beeno run src/main.js"},
+  "scripts":{"run":"cargo beeno run src/main.js"},
   "provider":"ollama",
   "force_llm":true
 }"#,
@@ -323,7 +323,7 @@ mod tests {
             parsed
                 .scripts
                 .as_ref()
-                .and_then(|s| s.get("beeno:run"))
+                .and_then(|s| s.get("run"))
                 .map(String::as_str),
             Some("cargo beeno run src/main.js")
         );
