@@ -159,6 +159,10 @@ where
     T: TranslationService,
     C: CompileCache,
 {
+    fn contains_jsr_specifier(source_text: &str) -> bool {
+        source_text.contains("jsr:")
+    }
+
     fn resolved_kind(&self, req: &CompileRequest) -> SourceKind {
         match req.kind_hint.clone().unwrap_or(SourceKind::Auto) {
             SourceKind::Auto => SourceKind::infer_from_source_id(&req.source_id),
@@ -197,7 +201,9 @@ where
     fn compile(&self, req: &CompileRequest) -> Result<CompileResult> {
         let kind = self.resolved_kind(req);
         let kind_hint = req.language_hint.clone().unwrap_or_else(|| kind.as_hint());
-        let needs_llm = req.force_llm || !matches!(kind, SourceKind::JavaScript);
+        let needs_llm = req.force_llm
+            || !matches!(kind, SourceKind::JavaScript)
+            || Self::contains_jsr_specifier(&req.source_text);
 
         if !needs_llm {
             return Ok(CompileResult {
@@ -454,6 +460,40 @@ mod tests {
 
         let result = router.compile(&req).expect("compile should pass");
         assert_eq!(result.metadata.provider, Some(Provider::OpenAiCompatible));
+    }
+
+    #[test]
+    fn jsr_source_in_js_routes_through_llm() {
+        let router = CompilerRouter {
+            translator: MockTranslator {
+                fail: false,
+                response_js: "console.log('jsr translated')".to_string(),
+                provider: Provider::Ollama,
+                model: "qwen".to_string(),
+                chain: vec![ProviderDescriptor {
+                    provider: Provider::Ollama,
+                    model: "qwen".to_string(),
+                }],
+                call_counter: None,
+            },
+            cache: MemoryCache::default(),
+        };
+
+        let req = CompileRequest {
+            source_text: "import { join } from \"jsr:@std/path\";\njoin('a','b');".to_string(),
+            source_id: "sample.js".to_string(),
+            kind_hint: Some(SourceKind::JavaScript),
+            language_hint: None,
+            scope_context: None,
+            force_llm: false,
+            provider_selection: ProviderSelection::Auto,
+            model_override: None,
+            no_cache: false,
+        };
+
+        let result = router.compile(&req).expect("compile should pass");
+        assert_eq!(result.javascript, "console.log('jsr translated')");
+        assert_eq!(result.metadata.provider, Some(Provider::Ollama));
     }
 
     #[test]

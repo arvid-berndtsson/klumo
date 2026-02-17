@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -23,6 +24,10 @@ pub enum ProgressSetting {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct FileConfig {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub dependencies: Option<BTreeMap<String, String>>,
+    pub scripts: Option<BTreeMap<String, String>>,
     pub provider: Option<ProviderSetting>,
     pub ollama_url: Option<String>,
     pub ollama_model: Option<String>,
@@ -288,11 +293,40 @@ mod tests {
     fn valid_config_parses() {
         let dir = tempdir().expect("tempdir should work");
         let path = dir.path().join("beeno.json");
-        fs::write(&path, r#"{"provider":"ollama","force_llm":true}"#).expect("write should work");
+        fs::write(
+            &path,
+            r#"{
+  "name":"demo",
+  "version":"0.0.1",
+  "dependencies":{"@arvid/is-char":"latest"},
+  "scripts":{"beeno:run":"cargo beeno run src/main.js"},
+  "provider":"ollama",
+  "force_llm":true
+}"#,
+        )
+        .expect("write should work");
 
         let parsed = load_file_config(None, dir.path())
             .expect("parse should work")
             .expect("file should exist");
+        assert_eq!(parsed.name.as_deref(), Some("demo"));
+        assert_eq!(parsed.version.as_deref(), Some("0.0.1"));
+        assert_eq!(
+            parsed
+                .dependencies
+                .as_ref()
+                .and_then(|d| d.get("@arvid/is-char"))
+                .map(String::as_str),
+            Some("latest")
+        );
+        assert_eq!(
+            parsed
+                .scripts
+                .as_ref()
+                .and_then(|s| s.get("beeno:run"))
+                .map(String::as_str),
+            Some("cargo beeno run src/main.js")
+        );
         assert_eq!(parsed.provider, Some(ProviderSetting::Ollama));
         assert_eq!(parsed.force_llm, Some(true));
     }

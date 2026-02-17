@@ -29,4 +29,4 @@ bash tests/projects/react-buggy/scripts/restore_buggy.sh
 
 - This sandbox is for runtime self-heal behavior, not for full React bundler/dev-server execution.
 - The entrypoint is intentionally malformed and should trigger repair attempts.
-- `beeno.json` in this folder makes Beeno the default runtime path for this project (`provider=ollama`, `lang=jsx`, `force_llm=true`).
+- `beeno.json` in this folder makes Beeno the default runtime path for this project (`provider=auto`, `lang=js`, `force_llm=false`).

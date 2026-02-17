@@ -89,6 +89,9 @@ cargo btest
 - `--verbose`
 - `--no-progress`
 
+JSR support:
+- JavaScript input containing `jsr:` specifiers is automatically routed through the LLM compile path (equivalent to force-LLM behavior for that source).
+
 Self-heal mode:
 - When enabled for JS files (`.js/.mjs/.cjs/.jsx`), runtime crashes trigger an LLM patch attempt.
 - Beeno rewrites the source file with the generated fix and retries execution.
