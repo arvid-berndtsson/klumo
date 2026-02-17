@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${BEENO_RUN_LIVE_TESTS:-0}" != "1" ]]; then
-  echo "[live-ollama-jsr] skipped (set BEENO_RUN_LIVE_TESTS=1 to enable)"
+if [[ "${KLUMO_RUN_LIVE_TESTS:-0}" != "1" ]]; then
+  echo "[live-ollama-jsr] skipped (set KLUMO_RUN_LIVE_TESTS=1 to enable)"
   exit 0
 fi
 
@@ -15,9 +15,9 @@ if ! curl -fsS "http://127.0.0.1:11434/api/tags" >/dev/null; then
   exit 1
 fi
 
-echo "[live-ollama-jsr] run project script via beeno run start"
+echo "[live-ollama-jsr] run project script via klumo run start"
 set +e
-RUN_OUT="$(cargo run -p beeno -- run start 2>&1)"
+RUN_OUT="$(cargo run -p klumo -- run start 2>&1)"
 STATUS=$?
 set -e
 

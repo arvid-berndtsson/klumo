@@ -1,14 +1,14 @@
 [workspace]
 members = [
-  "crates/beeno-cli",
-  "crates/beeno-config",
-  "crates/beeno-core",
-  "crates/beeno-engine",
-  "crates/beeno-engine-v8",
-  "crates/beeno-compiler",
-  "crates/beeno-llm",
-  "crates/beeno-llm-ollama",
-  "crates/beeno-llm-openai"
+  "crates/klumo-cli",
+  "crates/klumo-config",
+  "crates/klumo-core",
+  "crates/klumo-engine",
+  "crates/klumo-engine-v8",
+  "crates/klumo-compiler",
+  "crates/klumo-llm",
+  "crates/klumo-llm-ollama",
+  "crates/klumo-llm-openai"
 ]
 resolver = "2"
 

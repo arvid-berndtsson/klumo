@@ -1,21 +1,21 @@
-# Beeno Runtime Architecture (M2 UX)
+# Klumo Runtime Architecture (M2 UX)
 
 ## Goal
 
-Deliver a Deno-like daily workflow while keeping Beeno standalone and LLM-capable.
+Deliver a Deno-like daily workflow while keeping Klumo standalone and LLM-capable.
 
 ## Implemented Layers
 
-- `beeno-cli`: command entrypoint and UX flags.
-- `beeno-config`: `beeno.json` loading + env + CLI merge.
-- `beeno-core`: run orchestration (`load -> compile -> execute`) and progress modes.
+- `klumo-cli`: command entrypoint and UX flags.
+- `klumo-config`: `klumo.json` loading + env + CLI merge.
+- `klumo-core`: run orchestration (`load -> compile -> execute`) and progress modes.
   - also exposes compile-only orchestration for bundling (`load -> compile`).
-- `beeno-engine`: `JsEngine` trait + `BoaEngine` backend.
-- `beeno-engine-v8`: V8 backend scaffold behind `JsEngine`.
-- `beeno-compiler`: source routing + provider/model-aware compile cache.
-- `beeno-llm`: provider contracts + routing + normalization.
-- `beeno-llm-ollama`: local Ollama adapter.
-- `beeno-llm-openai`: OpenAI-compatible adapter.
+- `klumo-engine`: `JsEngine` trait + `BoaEngine` backend.
+- `klumo-engine-v8`: V8 backend scaffold behind `JsEngine`.
+- `klumo-compiler`: source routing + provider/model-aware compile cache.
+- `klumo-llm`: provider contracts + routing + normalization.
+- `klumo-llm-ollama`: local Ollama adapter.
+- `klumo-llm-openai`: OpenAI-compatible adapter.
 
 ## Config Resolution
 
@@ -23,10 +23,10 @@ Run defaults are resolved with strict precedence:
 
 1. CLI flags
 2. Environment variables
-3. `beeno.json`
+3. `klumo.json`
 4. Hardcoded defaults
 
-`beeno.json` currently supports:
+`klumo.json` currently supports:
 - provider, model/base URLs
 - lang
 - force_llm / print_js / no_cache
@@ -53,7 +53,7 @@ Auto mode remains local-first:
 2. Fallback to OpenAI-compatible provider.
 
 REPL behavior:
-- `beeno` and `beeno run` (without file) enter REPL.
+- `klumo` and `klumo run` (without file) enter REPL.
 - REPL lines are compiled via LLM (pseudocode hint) before execution.
 
 Routing errors are now rendered as readable multi-line attempt summaries.
@@ -61,16 +61,16 @@ Routing errors are now rendered as readable multi-line attempt summaries.
 ## Dev Ergonomics
 
 Cargo aliases in `.cargo/config.toml`:
-- `cargo beeno ...`
+- `cargo klumo ...`
 - `cargo btest`
 
 ## Bundle Flow
 
-`beeno bundle <file>` uses the same compile path/options as `beeno run` but skips execution and writes the generated JavaScript to disk.
+`klumo bundle <file>` uses the same compile path/options as `klumo run` but skips execution and writes the generated JavaScript to disk.
 
 ## Self-Heal Flow (Run)
 
-`beeno run <file> --self-heal` adds an error-recovery loop for JavaScript files:
+`klumo run <file> --self-heal` adds an error-recovery loop for JavaScript files:
 - execute
 - on runtime failure, request an LLM-generated full-file patch
 - rewrite file and retry (bounded by `--max-heal-attempts`)

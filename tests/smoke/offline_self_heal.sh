@@ -12,7 +12,7 @@ cp "$ROOT_DIR/tests/fixtures/broken_runtime.js" "$TMP_DIR/broken_runtime.js"
 
 echo "[offline-self-heal] run with self-heal and missing remote key"
 set +e
-OUT="$(env -u OPENAI_API_KEY -u BEENO_OPENAI_API_KEY cargo run -p beeno -- run "$TMP_DIR/broken_runtime.js" --self-heal --max-heal-attempts 1 --provider openai 2>&1)"
+OUT="$(env -u OPENAI_API_KEY -u KLUMO_OPENAI_API_KEY cargo run -p klumo -- run "$TMP_DIR/broken_runtime.js" --self-heal --max-heal-attempts 1 --provider openai 2>&1)"
 STATUS=$?
 set -e
 
@@ -33,7 +33,7 @@ if [[ "$OUT" != *"OPENAI_API_KEY is required"* ]]; then
   exit 1
 fi
 
-if [[ ! -f "$TMP_DIR/broken_runtime.js.beeno.bak" ]]; then
+if [[ ! -f "$TMP_DIR/broken_runtime.js.klumo.bak" ]]; then
   echo "[offline-self-heal] expected backup file to be created" >&2
   exit 1
 fi

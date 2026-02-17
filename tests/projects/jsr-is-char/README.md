@@ -1,6 +1,6 @@
 # JSR is-char Smoke Project
 
-This project validates Beeno runtime support for JSR imports using `@arvid/is-char`.
+This project validates Klumo runtime support for JSR imports using `@arvid/is-char`.
 
 ## Run
 
@@ -8,7 +8,7 @@ From repository root:
 
 ```bash
 cd tests/projects/jsr-is-char
-cargo run -p beeno -- run start
+cargo run -p klumo -- run start
 ```
 
 Expected output includes:

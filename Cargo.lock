@@ -113,107 +113,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "beeno"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "beeno-compiler",
- "beeno-config",
- "beeno-core",
- "beeno-engine",
- "beeno-engine-v8",
- "beeno-llm",
- "beeno-llm-ollama",
- "beeno-llm-openai",
- "clap",
- "insta",
- "predicates",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "beeno-compiler"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "beeno-llm",
- "dirs",
- "insta",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
-]
-
-[[package]]
-name = "beeno-config"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
-name = "beeno-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "beeno-compiler",
- "beeno-engine",
- "beeno-llm",
- "tempfile",
-]
-
-[[package]]
-name = "beeno-engine"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "boa_engine",
-]
-
-[[package]]
-name = "beeno-engine-v8"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "beeno-engine",
-]
-
-[[package]]
-name = "beeno-llm"
-version = "0.1.0"
-dependencies = [
- "anyhow",
-]
-
-[[package]]
-name = "beeno-llm-ollama"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "beeno-llm",
- "reqwest",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "beeno-llm-openai"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "beeno-llm",
- "reqwest",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1199,6 +1098,107 @@ checksum = "8c942ebf8e95485ca0d52d97da7c5a2c387d0e7f0ba4c35e93bfcaee045955b3"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "klumo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "clap",
+ "insta",
+ "klumo-compiler",
+ "klumo-config",
+ "klumo-core",
+ "klumo-engine",
+ "klumo-engine-v8",
+ "klumo-llm",
+ "klumo-llm-ollama",
+ "klumo-llm-openai",
+ "predicates",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "klumo-compiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "insta",
+ "klumo-llm",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "klumo-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "klumo-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "klumo-compiler",
+ "klumo-engine",
+ "klumo-llm",
+ "tempfile",
+]
+
+[[package]]
+name = "klumo-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "boa_engine",
+]
+
+[[package]]
+name = "klumo-engine-v8"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "klumo-engine",
+]
+
+[[package]]
+name = "klumo-llm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
+name = "klumo-llm-ollama"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "klumo-llm",
+ "reqwest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "klumo-llm-openai"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "klumo-llm",
+ "reqwest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

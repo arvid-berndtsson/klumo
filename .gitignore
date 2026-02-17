@@ -22,7 +22,7 @@
 *.profraw
 *.profdata
 /tests/.tmp/
-*.beeno.bak
+*.klumo.bak
 
 # IDE / editor
 .vscode/

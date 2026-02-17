@@ -1,0 +1,12 @@
+{
+  "name": "react-buggy-sandbox",
+  "version": "0.0.0",
+  "dependencies": {
+    "@arvid/is-char": "latest"
+  },
+  "scripts": {
+    "start": "cargo klumo run src/main.js",
+    "bundle": "cargo klumo bundle src/main.js --output dist/main.bundle.js",
+    "self-heal:ollama": "KLUMO_RUN_LIVE_TESTS=1 cargo klumo run src/main.jsx --self-heal --max-heal-attempts 2 --provider ollama"
+  }
+}

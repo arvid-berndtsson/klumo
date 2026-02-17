@@ -1,0 +1,28 @@
+[package]
+name = "klumo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "klumo"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+klumo-config = { path = "../klumo-config" }
+klumo-compiler = { path = "../klumo-compiler" }
+klumo-core = { path = "../klumo-core" }
+klumo-engine = { path = "../klumo-engine" }
+klumo-engine-v8 = { path = "../klumo-engine-v8" }
+klumo-llm = { path = "../klumo-llm" }
+klumo-llm-ollama = { path = "../klumo-llm-ollama" }
+klumo-llm-openai = { path = "../klumo-llm-openai" }
+clap.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+insta.workspace = true
+predicates.workspace = true
+tempfile.workspace = true

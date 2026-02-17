@@ -1,9 +1,0 @@
-[package]
-name = "beeno-engine-v8"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-anyhow.workspace = true
-beeno-engine = { path = "../beeno-engine" }

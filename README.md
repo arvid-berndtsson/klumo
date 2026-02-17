@@ -1,34 +1,34 @@
-# Beeno
+# Klumo
 
-**Slogan:** "Beeno, run node smarter, but with LLM benefits"
+**Slogan:** "Klumo, run node smarter, but with LLM benefits"
 
-Beeno is a standalone runtime in Rust with LLM-assisted compilation for non-JS input.
+Klumo is a standalone runtime in Rust with LLM-assisted compilation for non-JS input.
 
 ## Current UX (M2)
 
-- `beeno run <file>` is the primary command.
-- Project defaults can live in `beeno.json`.
+- `klumo run <file>` is the primary command.
+- Project defaults can live in `klumo.json`.
 - Common runs no longer need long flag lists.
 - Non-JS runs show minimal progress lines by default.
 
 ## Workspace Crates
 
-- `crates/beeno-cli`
-- `crates/beeno-config`
-- `crates/beeno-core`
-- `crates/beeno-engine`
-- `crates/beeno-compiler`
-- `crates/beeno-llm`
-- `crates/beeno-llm-ollama`
-- `crates/beeno-llm-openai`
+- `crates/klumo-cli`
+- `crates/klumo-config`
+- `crates/klumo-core`
+- `crates/klumo-engine`
+- `crates/klumo-compiler`
+- `crates/klumo-llm`
+- `crates/klumo-llm-ollama`
+- `crates/klumo-llm-openai`
 
 ## Quickstart
 
 ```bash
-cargo run -p beeno -- run examples/hello.js
-cargo run -p beeno -- bundle examples/hello.pseudocode --provider ollama --force-llm -o dist/hello.js
-cargo run -p beeno -- eval "1 + 2 + 3"
-cargo run -p beeno -- repl
+cargo run -p klumo -- run examples/hello.js
+cargo run -p klumo -- bundle examples/hello.pseudocode --provider ollama --force-llm -o dist/hello.js
+cargo run -p klumo -- eval "1 + 2 + 3"
+cargo run -p klumo -- repl
 ```
 
 ## Install (curl)
@@ -36,33 +36,33 @@ cargo run -p beeno -- repl
 Install latest release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/beeno/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/klumo/main/install.sh | sh
 ```
 
 Install specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/beeno/main/install.sh | BEENO_VERSION=v0.1.0 sh
+curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/klumo/main/install.sh | KLUMO_VERSION=v0.1.0 sh
 ```
 
 Update to latest:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/beeno/main/install.sh | sh -s -- --update
+curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/klumo/main/install.sh | sh -s -- --update
 ```
 
 Uninstall:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/beeno/main/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/klumo/main/install.sh | sh -s -- --uninstall
 ```
 
 Optional environment variables:
-- `BEENO_GITHUB_REPO` (default `arvid-berndtsson/beeno`)
-- `BEENO_VERSION` (default `latest`)
-- `BEENO_INSTALL_DIR` (default `~/.local/bin`)
+- `KLUMO_GITHUB_REPO` (default `arvid-berndtsson/klumo`)
+- `KLUMO_VERSION` (default `latest`)
+- `KLUMO_INSTALL_DIR` (default `~/.local/bin`)
 
-If no input file is provided (`beeno` or `beeno run`), Beeno starts REPL automatically.
+If no input file is provided (`klumo` or `klumo run`), Klumo starts REPL automatically.
 REPL input is treated as pseudocode and sent through the LLM compile path before execution.
 
 ## Short Dev Commands
@@ -70,11 +70,11 @@ REPL input is treated as pseudocode and sent through the LLM compile path before
 Cargo aliases are configured in `.cargo/config.toml`:
 
 ```bash
-cargo beeno run examples/hello.pseudocode
+cargo klumo run examples/hello.pseudocode
 cargo btest
 ```
 
-## `beeno run` Flags
+## `klumo run` Flags
 
 - `--config <path>`
 - `--lang <hint>`
@@ -94,26 +94,26 @@ JSR support:
 
 Self-heal mode:
 - When enabled for JS files (`.js/.mjs/.cjs/.jsx`), runtime crashes trigger an LLM patch attempt.
-- Beeno rewrites the source file with the generated fix and retries execution.
-- A backup is written once to `<file>.beeno.bak` before the first patch.
+- Klumo rewrites the source file with the generated fix and retries execution.
+- A backup is written once to `<file>.klumo.bak` before the first patch.
 
-## `beeno bundle`
+## `klumo bundle`
 
 Compile a source file to JavaScript without executing it.
 
 Examples:
 
 ```bash
-beeno bundle examples/hello.js
-beeno bundle examples/hello.pseudocode --provider ollama --force-llm -o dist/hello.js
+klumo bundle examples/hello.js
+klumo bundle examples/hello.pseudocode --provider ollama --force-llm -o dist/hello.js
 ```
 
 Behavior:
 - Default output path is `<input>.bundle.js` when `--output` is not provided.
-- Uses the same config/env/provider resolution as `beeno run`.
-- Produces JS artifacts you can run later with `beeno run <bundle.js>` without LLM translation.
+- Uses the same config/env/provider resolution as `klumo run`.
+- Produces JS artifacts you can run later with `klumo run <bundle.js>` without LLM translation.
 
-## `beeno.json` (project defaults)
+## `klumo.json` (project defaults)
 
 Example:
 
@@ -136,30 +136,30 @@ Example:
 
 Lookup order:
 1. `--config <path>`
-2. `./beeno.json`
+2. `./klumo.json`
 3. no file
 
 Precedence:
-`CLI flags > env vars > beeno.json > defaults`
+`CLI flags > env vars > klumo.json > defaults`
 
 Note: prefer environment variables for secrets in shared repos.
 
 ## Environment Variables
 
-- `BEENO_ENGINE` (`boa` default, `v8` experimental scaffold)
-- `BEENO_PROVIDER`
-- `BEENO_OLLAMA_URL`
-- `BEENO_OLLAMA_MODEL`
+- `KLUMO_ENGINE` (`boa` default, `v8` experimental scaffold)
+- `KLUMO_PROVIDER`
+- `KLUMO_OLLAMA_URL`
+- `KLUMO_OLLAMA_MODEL`
 - `OPENAI_API_KEY`
-- `BEENO_OPENAI_API_KEY`
+- `KLUMO_OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
-- `BEENO_MODEL`
-- `BEENO_LANG`
-- `BEENO_FORCE_LLM`
-- `BEENO_PRINT_JS`
-- `BEENO_NO_CACHE`
-- `BEENO_VERBOSE`
-- `BEENO_PROGRESS`
+- `KLUMO_MODEL`
+- `KLUMO_LANG`
+- `KLUMO_FORCE_LLM`
+- `KLUMO_PRINT_JS`
+- `KLUMO_NO_CACHE`
+- `KLUMO_VERBOSE`
+- `KLUMO_PROGRESS`
 
 ## Progress Output
 
@@ -171,32 +171,32 @@ Controls:
 - `--verbose` for detailed trace.
 - `--no-progress` to suppress status lines.
 
-When `--verbose` is used and the run goes through LLM compilation, Beeno prints the generated JavaScript before execution.
+When `--verbose` is used and the run goes through LLM compilation, Klumo prints the generated JavaScript before execution.
 
 ## REPL Web APIs
 
-Inside REPL, Beeno now exposes a web daemon and route controls both as dot-commands and JavaScript APIs.
+Inside REPL, Klumo now exposes a web daemon and route controls both as dot-commands and JavaScript APIs.
 
 Dot-commands:
 - `.web start [--dir <path>] [--port <n>] [--host <ip>] [--open|--no-open|--no-open-prompt]`
 - `.web status`, `.web open`, `.web stop`, `.web restart`
 
 JavaScript APIs:
-- `beeno.web.start({ dir, port, host, open, noOpenPrompt })`
-- `beeno.web.stop()`
-- `beeno.web.restart({ dir, port, host, open })`
-- `beeno.web.open()`
-- `beeno.web.status()`
-- `beeno.web.routeJson(path, payload, { status })`
-- `beeno.web.routeText(path, text, { status, contentType })`
-- `beeno.web.unroute(path)`
+- `klumo.web.start({ dir, port, host, open, noOpenPrompt })`
+- `klumo.web.stop()`
+- `klumo.web.restart({ dir, port, host, open })`
+- `klumo.web.open()`
+- `klumo.web.status()`
+- `klumo.web.routeJson(path, payload, { status })`
+- `klumo.web.routeText(path, text, { status, contentType })`
+- `klumo.web.unroute(path)`
 
 Notes:
 - Static files are served directly from disk, so hot fixes are visible after browser refresh.
 - Registered API routes are available on the same daemon, enabling browser UI + local API prototyping in the same REPL session.
 - By default, start asks whether to open the page in the default browser unless `open`/`noOpenPrompt` override it.
 - REPL prompt failures trigger automatic self-heal retries (translation + runtime) until success, except clearly non-recoverable provider/config errors.
-- Optional cap: set `BEENO_REPL_SELF_HEAL_MAX_ATTEMPTS=<n>` (`0` or unset means unlimited retries).
+- Optional cap: set `KLUMO_REPL_SELF_HEAL_MAX_ATTEMPTS=<n>` (`0` or unset means unlimited retries).
 
 ## Tests
 
@@ -210,16 +210,16 @@ Root smoke checks:
 bash tests/smoke/offline.sh
 bash tests/smoke/offline_repl.sh
 bash tests/smoke/offline_self_heal.sh
-BEENO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama.sh
-BEENO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama_react_project.sh
+KLUMO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama.sh
+KLUMO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama_react_project.sh
 ```
 
 Live provider tests remain ignored by default and are gated by:
 
-- `BEENO_RUN_LIVE_TESTS=1`
+- `KLUMO_RUN_LIVE_TESTS=1`
 
 ## Deferred
 
-- V8 migration (`deno_core` / `rusty_v8`) is scaffolded via `crates/beeno-engine-v8` and planned for full implementation next.
+- V8 migration (`deno_core` / `rusty_v8`) is scaffolded via `crates/klumo-engine-v8` and planned for full implementation next.
 - Node compatibility shims are not implemented yet.
 - Module graph/import loader and permission flags are deferred.

@@ -1,3 +1,3 @@
 [alias]
-beeno = "run -p beeno --"
+klumo = "run -p klumo --"
 btest = "test --workspace"

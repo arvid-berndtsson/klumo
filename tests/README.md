@@ -1,6 +1,6 @@
 # Root Smoke Tests
 
-This folder contains end-to-end smoke checks for the Beeno runtime from the repository root.
+This folder contains end-to-end smoke checks for the Klumo runtime from the repository root.
 
 ## Structure
 
@@ -27,12 +27,12 @@ bash tests/smoke/offline_self_heal.sh
 Live Ollama (opt-in):
 
 ```bash
-BEENO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama.sh
-BEENO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama_react_project.sh
-BEENO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama_jsr_project.sh
+KLUMO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama.sh
+KLUMO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama_react_project.sh
+KLUMO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama_jsr_project.sh
 ```
 
 Notes:
 
 - Live test expects Ollama running at `http://127.0.0.1:11434`.
-- Live test uses `BEENO_OLLAMA_MODEL` if set, otherwise runtime defaults.
+- Live test uses `KLUMO_OLLAMA_MODEL` if set, otherwise runtime defaults.

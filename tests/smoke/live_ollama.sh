@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${BEENO_RUN_LIVE_TESTS:-0}" != "1" ]]; then
-  echo "[live-ollama] skipped (set BEENO_RUN_LIVE_TESTS=1 to enable)"
+if [[ "${KLUMO_RUN_LIVE_TESTS:-0}" != "1" ]]; then
+  echo "[live-ollama] skipped (set KLUMO_RUN_LIVE_TESTS=1 to enable)"
   exit 0
 fi
 
@@ -21,7 +21,7 @@ cp "$ROOT_DIR/tests/fixtures/broken_syntax.js" "$TMP_DIR/broken_syntax.js"
 
 echo "[live-ollama] run with self-heal"
 set +e
-RUN_OUT="$(cargo run -p beeno -- run "$TMP_DIR/broken_syntax.js" --self-heal --max-heal-attempts 2 --provider ollama 2>&1)"
+RUN_OUT="$(cargo run -p klumo -- run "$TMP_DIR/broken_syntax.js" --self-heal --max-heal-attempts 2 --provider ollama 2>&1)"
 STATUS=$?
 set -e
 
@@ -37,7 +37,7 @@ if [[ "$RUN_OUT" != *"SELF_HEAL_OK"* ]]; then
   exit 1
 fi
 
-if [[ ! -f "$TMP_DIR/broken_syntax.js.beeno.bak" ]]; then
+if [[ ! -f "$TMP_DIR/broken_syntax.js.klumo.bak" ]]; then
   echo "[live-ollama] expected backup file was not created" >&2
   exit 1
 fi

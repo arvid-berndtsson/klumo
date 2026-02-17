@@ -1,0 +1,14 @@
+[package]
+name = "klumo-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+klumo-compiler = { path = "../klumo-compiler" }
+klumo-engine = { path = "../klumo-engine" }
+klumo-llm = { path = "../klumo-llm" }
+
+[dev-dependencies]
+tempfile.workspace = true

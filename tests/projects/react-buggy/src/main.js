@@ -2,7 +2,7 @@ import isChar from "jsr:@arvid/is-char";
 
 function bootstrap() {
   function App() {
-    const label = "Beeno React Buggy Sandbox";
+    const label = "Klumo React Buggy Sandbox";
     const probe = isChar("B") ? "B is a char" : "B is not a char";
     return `${label}\nCount: 0\n${probe}`;
   }

@@ -47,28 +47,28 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build -p beeno --release --target ${{ matrix.target }}
+        run: cargo build -p klumo --release --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/beeno dist/beeno${{ matrix.bin_ext }}
-          tar -C dist -czf beeno-${{ matrix.target }}.${{ matrix.archive_ext }} beeno${{ matrix.bin_ext }}
+          cp target/${{ matrix.target }}/release/klumo dist/klumo${{ matrix.bin_ext }}
+          tar -C dist -czf klumo-${{ matrix.target }}.${{ matrix.archive_ext }} klumo${{ matrix.bin_ext }}
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/beeno${{ matrix.bin_ext }}" "dist/beeno${{ matrix.bin_ext }}"
-          Compress-Archive -Path "dist/beeno${{ matrix.bin_ext }}" -DestinationPath "beeno-${{ matrix.target }}.${{ matrix.archive_ext }}"
+          Copy-Item "target/${{ matrix.target }}/release/klumo${{ matrix.bin_ext }}" "dist/klumo${{ matrix.bin_ext }}"
+          Compress-Archive -Path "dist/klumo${{ matrix.bin_ext }}" -DestinationPath "klumo-${{ matrix.target }}.${{ matrix.archive_ext }}"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: beeno-${{ matrix.target }}
-          path: beeno-${{ matrix.target }}.${{ matrix.archive_ext }}
+          name: klumo-${{ matrix.target }}
+          path: klumo-${{ matrix.target }}.${{ matrix.archive_ext }}
 
   publish:
     name: publish release
@@ -89,11 +89,11 @@ jobs:
             hash="$(sha256sum "$file" | awk '{print $1}')"
             name="$(basename "$file")"
             printf "%s  %s\n" "$hash" "$name" >> checksums.txt
-          done < <(find artifacts -type f -name "beeno-*" -print0)
+          done < <(find artifacts -type f -name "klumo-*" -print0)
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/**/beeno-*
+            artifacts/**/klumo-*
             checksums.txt

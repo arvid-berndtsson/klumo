@@ -2,7 +2,7 @@ import { useState } from "react";
 
 export default function App() {
   const [count, setCount] = useState(0);
-  const label = "Beeno React Buggy Sandbox";
+  const label = "Klumo React Buggy Sandbox";
 
   return (
     <main style={{ fontFamily: "sans-serif", padding: 24 }}>

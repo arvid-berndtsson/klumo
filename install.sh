@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DEFAULT="arvid-berndtsson/beeno"
-REPO="${BEENO_GITHUB_REPO:-$REPO_DEFAULT}"
-VERSION="${BEENO_VERSION:-latest}"
-INSTALL_DIR="${BEENO_INSTALL_DIR:-$HOME/.local/bin}"
+REPO_DEFAULT="arvid-berndtsson/klumo"
+REPO="${KLUMO_GITHUB_REPO:-$REPO_DEFAULT}"
+VERSION="${KLUMO_VERSION:-latest}"
+INSTALL_DIR="${KLUMO_INSTALL_DIR:-$HOME/.local/bin}"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 MODE="install"
 
 usage() {
   cat <<'EOF'
-beeno install script
+klumo install script
 
 Usage:
   install.sh [--install|--update|--uninstall] [--help]
 
 Modes:
-  --install     Install Beeno (default)
-  --update      Update Beeno (same as install, defaults to latest)
-  --uninstall   Remove Beeno binary from install dir
+  --install     Install Klumo (default)
+  --update      Update Klumo (same as install, defaults to latest)
+  --uninstall   Remove Klumo binary from install dir
 
 Environment variables:
-  BEENO_GITHUB_REPO   GitHub repo, default: arvid-berndtsson/beeno
-  BEENO_VERSION       Release tag (vX.Y.Z) or latest, default: latest
-  BEENO_INSTALL_DIR   Install directory, default: ~/.local/bin
+  KLUMO_GITHUB_REPO   GitHub repo, default: arvid-berndtsson/klumo
+  KLUMO_VERSION       Release tag (vX.Y.Z) or latest, default: latest
+  KLUMO_INSTALL_DIR   Install directory, default: ~/.local/bin
 EOF
 }
 
@@ -107,13 +107,13 @@ verify_checksum_if_available() {
   archive_path="$3"
 
   if [[ ! -s "$checksums_file" ]]; then
-    echo "[beeno-install] checksums.txt not found; skipping checksum verification"
+    echo "[klumo-install] checksums.txt not found; skipping checksum verification"
     return 0
   fi
 
   expected="$(grep "  ${archive_name}$" "$checksums_file" | awk '{print $1}' || true)"
   if [[ -z "$expected" ]]; then
-    echo "[beeno-install] no checksum entry for ${archive_name}; skipping verification"
+    echo "[klumo-install] no checksum entry for ${archive_name}; skipping verification"
     return 0
   fi
 
@@ -122,7 +122,7 @@ verify_checksum_if_available() {
   elif command -v shasum >/dev/null 2>&1; then
     actual="$(shasum -a 256 "$archive_path" | awk '{print $1}')"
   else
-    echo "[beeno-install] no sha256 tool found; skipping checksum verification"
+    echo "[klumo-install] no sha256 tool found; skipping checksum verification"
     return 0
   fi
 
@@ -144,11 +144,11 @@ extract_binary() {
     *windows*)
       need_cmd unzip
       unzip -q "$archive" -d "$TMP_DIR/extract"
-      cp "$TMP_DIR/extract/beeno.exe" "$out_bin"
+      cp "$TMP_DIR/extract/klumo.exe" "$out_bin"
       ;;
     *)
       tar -xzf "$archive" -C "$TMP_DIR"
-      cp "$TMP_DIR/beeno" "$out_bin"
+      cp "$TMP_DIR/klumo" "$out_bin"
       ;;
   esac
 }
@@ -160,9 +160,9 @@ uninstall_binary() {
 
   if [[ -f "$path" ]]; then
     rm -f "$path"
-    echo "[beeno-install] uninstalled: $path"
+    echo "[klumo-install] uninstalled: $path"
   else
-    echo "[beeno-install] no binary found at: $path"
+    echo "[klumo-install] no binary found at: $path"
   fi
 }
 
@@ -174,10 +174,10 @@ need_cmd tar
 TARGET="$(detect_target)"
 if [[ "$TARGET" == *windows* ]]; then
   ARCHIVE_EXT="zip"
-  BIN_NAME="beeno.exe"
+  BIN_NAME="klumo.exe"
 else
   ARCHIVE_EXT="tar.gz"
-  BIN_NAME="beeno"
+  BIN_NAME="klumo"
 fi
 
 if [[ "$VERSION" == "latest" ]]; then
@@ -186,13 +186,13 @@ else
   BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 fi
 
-ARCHIVE_NAME="beeno-${TARGET}.${ARCHIVE_EXT}"
+ARCHIVE_NAME="klumo-${TARGET}.${ARCHIVE_EXT}"
 ARCHIVE_PATH="$TMP_DIR/$ARCHIVE_NAME"
 CHECKSUMS_PATH="$TMP_DIR/checksums.txt"
 
-echo "[beeno-install] repo: ${REPO}"
-echo "[beeno-install] version: ${VERSION}"
-echo "[beeno-install] target: ${TARGET}"
+echo "[klumo-install] repo: ${REPO}"
+echo "[klumo-install] version: ${VERSION}"
+echo "[klumo-install] target: ${TARGET}"
 
 if [[ "$MODE" == "uninstall" ]]; then
   uninstall_binary "$BIN_NAME"
@@ -208,8 +208,8 @@ extract_binary "$ARCHIVE_PATH" "$TARGET" "$TMP_DIR/$BIN_NAME"
 install -m 0755 "$TMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 
 if [[ "$MODE" == "update" ]]; then
-  echo "[beeno-install] updated: $INSTALL_DIR/$BIN_NAME"
+  echo "[klumo-install] updated: $INSTALL_DIR/$BIN_NAME"
 else
-  echo "[beeno-install] installed: $INSTALL_DIR/$BIN_NAME"
+  echo "[klumo-install] installed: $INSTALL_DIR/$BIN_NAME"
 fi
-echo "[beeno-install] run: beeno --version"
+echo "[klumo-install] run: klumo --version"

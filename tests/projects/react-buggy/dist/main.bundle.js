@@ -1,6 +1,6 @@
 function bootstrap() {
   function App() {
-    const label = "Beeno React Buggy Sandbox";
+    const label = "Klumo React Buggy Sandbox";
     return `${label}\nCount: 0`;
   }
 

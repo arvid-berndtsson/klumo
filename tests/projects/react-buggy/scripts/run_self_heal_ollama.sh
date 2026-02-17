@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${BEENO_RUN_LIVE_TESTS:-0}" != "1" ]]; then
-  echo "[react-buggy] skipped (set BEENO_RUN_LIVE_TESTS=1 to enable)"
+if [[ "${KLUMO_RUN_LIVE_TESTS:-0}" != "1" ]]; then
+  echo "[react-buggy] skipped (set KLUMO_RUN_LIVE_TESTS=1 to enable)"
   exit 0
 fi
 
@@ -16,7 +16,7 @@ fi
 
 echo "[react-buggy] running self-heal on $PROJECT_DIR/src/main.jsx"
 set +e
-OUT="$(cargo beeno run src/main.jsx --self-heal --max-heal-attempts 2 2>&1)"
+OUT="$(cargo klumo run src/main.jsx --self-heal --max-heal-attempts 2 2>&1)"
 STATUS=$?
 set -e
 
@@ -26,12 +26,12 @@ if [[ $STATUS -ne 0 ]]; then
   exit $STATUS
 fi
 
-if [[ ! -f "$PROJECT_DIR/src/main.jsx.beeno.bak" ]]; then
+if [[ ! -f "$PROJECT_DIR/src/main.jsx.klumo.bak" ]]; then
   echo "[react-buggy] expected backup file was not created" >&2
   exit 1
 fi
 
-if cmp -s "$PROJECT_DIR/src/main.jsx" "$PROJECT_DIR/src/main.jsx.beeno.bak"; then
+if cmp -s "$PROJECT_DIR/src/main.jsx" "$PROJECT_DIR/src/main.jsx.klumo.bak"; then
   echo "[react-buggy] expected healed file to differ from backup, but no change detected" >&2
   exit 1
 fi
