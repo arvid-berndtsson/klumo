@@ -51,9 +51,9 @@ globalThis.__beeno_flush_console = () => {
     }
 
     fn flush_console_logs(&mut self) {
-        let flushed = self
-            .ctx
-            .eval(Source::from_bytes("globalThis.__beeno_flush_console?.() ?? ''"));
+        let flushed = self.ctx.eval(Source::from_bytes(
+            "globalThis.__beeno_flush_console?.() ?? ''",
+        ));
         let Ok(value) = flushed else {
             return;
         };
@@ -108,7 +108,9 @@ mod tests {
     #[test]
     fn evaluates_expression() {
         let mut engine = BoaEngine::new();
-        let output = engine.eval_script("1 + 2", "<test>").expect("eval should pass");
+        let output = engine
+            .eval_script("1 + 2", "<test>")
+            .expect("eval should pass");
         assert_eq!(output.value.as_deref(), Some("3"));
     }
 

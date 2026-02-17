@@ -134,7 +134,9 @@ impl EnvConfig {
                 .or_else(|| env::var("BEENO_OPENAI_API_KEY").ok()),
             openai_model: env::var("BEENO_MODEL").ok(),
             lang: env::var("BEENO_LANG").ok(),
-            force_llm: env::var("BEENO_FORCE_LLM").ok().and_then(|v| parse_bool(&v)),
+            force_llm: env::var("BEENO_FORCE_LLM")
+                .ok()
+                .and_then(|v| parse_bool(&v)),
             print_js: env::var("BEENO_PRINT_JS").ok().and_then(|v| parse_bool(&v)),
             no_cache: env::var("BEENO_NO_CACHE").ok().and_then(|v| parse_bool(&v)),
             verbose: env::var("BEENO_VERBOSE").ok().and_then(|v| parse_bool(&v)),
@@ -276,8 +278,8 @@ fn parse_progress(input: &str) -> Option<ProgressSetting> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CliRunOverrides, EnvConfig, FileConfig, ProgressSetting, ProviderSetting,
-        load_file_config, resolve_run_defaults,
+        CliRunOverrides, EnvConfig, FileConfig, ProgressSetting, ProviderSetting, load_file_config,
+        resolve_run_defaults,
     };
     use std::fs;
     use tempfile::tempdir;
@@ -286,8 +288,7 @@ mod tests {
     fn valid_config_parses() {
         let dir = tempdir().expect("tempdir should work");
         let path = dir.path().join("beeno.json");
-        fs::write(&path, r#"{"provider":"ollama","force_llm":true}"#)
-            .expect("write should work");
+        fs::write(&path, r#"{"provider":"ollama","force_llm":true}"#).expect("write should work");
 
         let parsed = load_file_config(None, dir.path())
             .expect("parse should work")

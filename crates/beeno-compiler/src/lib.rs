@@ -138,7 +138,8 @@ impl CompileCache for FileCompileCache {
             prompt_version: result.metadata.prompt_version.clone(),
         };
 
-        let raw = serde_json::to_string_pretty(&payload).context("failed serializing cache payload")?;
+        let raw =
+            serde_json::to_string_pretty(&payload).context("failed serializing cache payload")?;
         fs::write(path, raw).context("failed writing cache file")?;
         Ok(())
     }
@@ -283,7 +284,10 @@ fn format_provider(provider: Provider) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompileCache, CompileRequest, CompileResult, Compiler, CompilerRouter, FileCompileCache, PROMPT_VERSION, SourceKind};
+    use super::{
+        CompileCache, CompileRequest, CompileResult, Compiler, CompilerRouter, FileCompileCache,
+        PROMPT_VERSION, SourceKind,
+    };
     use anyhow::{Result, anyhow};
     use beeno_llm::{
         LlmTranslateRequest, LlmTranslateResponse, Provider, ProviderDescriptor, ProviderSelection,
@@ -291,7 +295,9 @@ mod tests {
     };
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::tempdir;
 
     struct MockTranslator {
@@ -300,6 +306,7 @@ mod tests {
         provider: Provider,
         model: String,
         chain: Vec<ProviderDescriptor>,
+        call_counter: Option<Arc<AtomicUsize>>,
     }
 
     impl TranslationService for MockTranslator {
@@ -313,6 +320,9 @@ mod tests {
             _req: &LlmTranslateRequest,
             _model_override: Option<&str>,
         ) -> Result<LlmTranslateResponse> {
+            if let Some(counter) = &self.call_counter {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
             if self.fail {
                 return Err(anyhow!("llm unavailable"));
             }
@@ -367,6 +377,7 @@ mod tests {
                 provider: Provider::Ollama,
                 model: "m".to_string(),
                 chain: vec![],
+                call_counter: None,
             },
             cache: MemoryCache::default(),
         };
@@ -400,6 +411,7 @@ mod tests {
                     provider: Provider::Ollama,
                     model: "model".to_string(),
                 }],
+                call_counter: None,
             },
             cache: MemoryCache::default(),
         };
@@ -423,6 +435,7 @@ mod tests {
                     provider: Provider::OpenAiCompatible,
                     model: "gpt".to_string(),
                 }],
+                call_counter: None,
             },
             cache: MemoryCache::default(),
         };
@@ -458,6 +471,7 @@ mod tests {
                     provider: Provider::Ollama,
                     model: "qwen".to_string(),
                 }],
+                call_counter: None,
             },
             cache,
         };
@@ -483,6 +497,7 @@ mod tests {
                     provider: Provider::Ollama,
                     model: "qwen".to_string(),
                 }],
+                call_counter: None,
             },
             cache: MemoryCache::default(),
         };
@@ -491,5 +506,37 @@ mod tests {
             .compile(&pseudo_request())
             .expect_err("compile should fail");
         insta::assert_snapshot!(err.to_string(), @r"llm unavailable");
+    }
+
+    #[test]
+    fn no_cache_bypasses_cached_entries() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let temp = tempdir().expect("tempdir should work");
+        let cache = FileCompileCache::new(PathBuf::from(temp.path()));
+
+        let router = CompilerRouter {
+            translator: MockTranslator {
+                fail: false,
+                response_js: "console.log('fresh')".to_string(),
+                provider: Provider::Ollama,
+                model: "qwen".to_string(),
+                chain: vec![ProviderDescriptor {
+                    provider: Provider::Ollama,
+                    model: "qwen".to_string(),
+                }],
+                call_counter: Some(counter.clone()),
+            },
+            cache,
+        };
+
+        let mut req = pseudo_request();
+        req.no_cache = false;
+        router.compile(&req).expect("first compile should pass");
+        router.compile(&req).expect("second compile should pass");
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        req.no_cache = true;
+        router.compile(&req).expect("no-cache compile should pass");
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 }

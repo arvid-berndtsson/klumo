@@ -87,7 +87,9 @@ impl LlmClient for OpenAiCompatibleClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body = response.text().unwrap_or_else(|_| "<unavailable>".to_string());
+            let body = response
+                .text()
+                .unwrap_or_else(|_| "<unavailable>".to_string());
             return Err(anyhow!(
                 "OpenAI-compatible request failed ({status}): {body}"
             ));

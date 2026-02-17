@@ -21,6 +21,8 @@
 /coverage/
 *.profraw
 *.profdata
+/tests/.tmp/
+*.beeno.bak
 
 # IDE / editor
 .vscode/

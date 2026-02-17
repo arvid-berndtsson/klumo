@@ -64,6 +64,43 @@ fn run_js_file_works_without_llm() {
 }
 
 #[test]
+fn bundle_js_file_writes_output() {
+    let dir = tempdir().expect("tempdir should work");
+    let input = dir.path().join("hello.js");
+    let output = dir.path().join("dist").join("hello.out.js");
+    fs::write(&input, "40 + 2").expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .args([
+            "bundle",
+            input.to_str().expect("path utf8"),
+            "--output",
+            output.to_str().expect("path utf8"),
+        ])
+        .assert()
+        .success()
+        .stdout(contains(output.to_str().expect("path utf8")));
+
+    let bundled = fs::read_to_string(&output).expect("bundle should exist");
+    assert!(bundled.contains("40 + 2"));
+}
+
+#[test]
+fn bundle_default_output_uses_bundle_js_extension() {
+    let dir = tempdir().expect("tempdir should work");
+    let input = dir.path().join("demo.js");
+    fs::write(&input, "1 + 1").expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .args(["bundle", input.to_str().expect("path utf8")])
+        .assert()
+        .success();
+
+    let expected = dir.path().join("demo.bundle.js");
+    assert!(expected.exists());
+}
+
+#[test]
 fn llm_path_without_api_key_fails_cleanly() {
     let dir = tempdir().expect("tempdir should work");
     let path = dir.path().join("needs-llm.pseudo");
@@ -81,6 +118,48 @@ fn llm_path_without_api_key_fails_cleanly() {
         .assert()
         .failure()
         .stderr(contains("OPENAI_API_KEY is required"));
+}
+
+#[test]
+fn self_heal_attempts_llm_patch_on_runtime_error() {
+    let dir = tempdir().expect("tempdir should work");
+    let path = dir.path().join("boom.js");
+    fs::write(&path, "throw new Error('boom')").expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .env_remove("OPENAI_API_KEY")
+        .args([
+            "run",
+            path.to_str().expect("path utf8"),
+            "--self-heal",
+            "--max-heal-attempts",
+            "1",
+            "--provider",
+            "openai",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("self-heal attempt 1"))
+        .stderr(contains("OPENAI_API_KEY is required"));
+}
+
+#[test]
+fn self_heal_rejects_non_js_inputs() {
+    let dir = tempdir().expect("tempdir should work");
+    let path = dir.path().join("broken.pseudo");
+    fs::write(&path, "this will not run").expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .args([
+            "run",
+            path.to_str().expect("path utf8"),
+            "--self-heal",
+            "--lang",
+            "pseudocode",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("self-heal currently supports .js/.mjs/.cjs/.jsx"));
 }
 
 #[test]
@@ -219,7 +298,6 @@ fn selecting_v8_engine_reports_scaffold_state() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("V8 backend is scaffolded but not implemented yet"));
 }
-
 
 #[test]
 fn config_openai_api_key_is_used() {

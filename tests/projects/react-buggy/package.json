@@ -1,0 +1,12 @@
+{
+  "name": "react-buggy-sandbox",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "beeno:run": "bash ./scripts/run_beeno.sh",
+    "beeno:bundle": "bash ./scripts/bundle_beeno.sh",
+    "restore:buggy": "bash ./scripts/restore_buggy.sh",
+    "beeno:self-heal:ollama": "bash ./scripts/run_self_heal_ollama.sh"
+  }
+}

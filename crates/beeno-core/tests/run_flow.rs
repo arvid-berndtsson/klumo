@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use beeno_compiler::{CompileCache, CompileResult, CompilerRouter, SourceKind};
-use beeno_core::{ProgressMode, RunOptions, run_file};
+use beeno_core::{ProgressMode, RunOptions, compile_file, run_file};
 use beeno_engine::BoaEngine;
 use beeno_llm::{
     LlmTranslateRequest, LlmTranslateResponse, Provider, ProviderDescriptor, ProviderSelection,
@@ -25,7 +25,11 @@ impl Default for MemoryCache {
 
 impl CompileCache for MemoryCache {
     fn get(&self, key: &str) -> Option<CompileResult> {
-        self.data.lock().expect("lock should work").get(key).cloned()
+        self.data
+            .lock()
+            .expect("lock should work")
+            .get(key)
+            .cloned()
     }
 
     fn put(&self, key: &str, result: &CompileResult) -> Result<()> {
@@ -195,4 +199,60 @@ fn runtime_failure_returns_error() {
     let mut engine = BoaEngine::new();
     let err = run_file(&mut engine, &compiler, &file, &options()).expect_err("run should fail");
     assert!(err.to_string().contains("failed evaluating"));
+}
+
+#[test]
+fn compile_file_passthrough_for_js() {
+    let dir = tempdir().expect("tempdir should work");
+    let file = dir.path().join("hello.js");
+    fs::write(&file, "1 + 2").expect("write should work");
+
+    let compiler = CompilerRouter {
+        translator: MockService {
+            fail: true,
+            js: String::new(),
+            provider: Provider::Ollama,
+            model: "qwen".to_string(),
+            chain: vec![],
+        },
+        cache: MemoryCache::default(),
+    };
+
+    let out = compile_file(&compiler, &file, &options()).expect("compile should pass");
+    assert_eq!(out.javascript, "1 + 2");
+    assert_eq!(out.metadata.provider, None);
+}
+
+#[test]
+fn compile_file_uses_llm_for_non_js() {
+    let dir = tempdir().expect("tempdir should work");
+    let file = dir.path().join("hello.pseudo");
+    fs::write(&file, "write hello").expect("write should work");
+
+    let compiler = CompilerRouter {
+        translator: MockService {
+            fail: false,
+            js: "console.log('hello')".to_string(),
+            provider: Provider::Ollama,
+            model: "qwen".to_string(),
+            chain: vec![ProviderDescriptor {
+                provider: Provider::Ollama,
+                model: "qwen".to_string(),
+            }],
+        },
+        cache: MemoryCache::default(),
+    };
+
+    let out = compile_file(
+        &compiler,
+        &file,
+        &RunOptions {
+            kind_hint: Some(SourceKind::Unknown("pseudo".to_string())),
+            language_hint: Some("pseudocode".to_string()),
+            ..options()
+        },
+    )
+    .expect("compile should pass");
+    assert_eq!(out.metadata.provider, Some(Provider::Ollama));
+    assert_eq!(out.javascript, "console.log('hello')");
 }

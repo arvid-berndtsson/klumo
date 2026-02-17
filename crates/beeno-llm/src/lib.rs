@@ -216,8 +216,7 @@ where
             match self.call_provider(entry.provider, req, model_override) {
                 Ok(response) => return Ok(response),
                 Err(err) => {
-                    let note = if index + 1 < total && matches!(entry.provider, Provider::Ollama)
-                    {
+                    let note = if index + 1 < total && matches!(entry.provider, Provider::Ollama) {
                         Some("Ollama failed, falling back to OpenAI-compatible".to_string())
                     } else {
                         None

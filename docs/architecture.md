@@ -9,6 +9,7 @@ Deliver a Deno-like daily workflow while keeping Beeno standalone and LLM-capabl
 - `beeno-cli`: command entrypoint and UX flags.
 - `beeno-config`: `beeno.json` loading + env + CLI merge.
 - `beeno-core`: run orchestration (`load -> compile -> execute`) and progress modes.
+  - also exposes compile-only orchestration for bundling (`load -> compile`).
 - `beeno-engine`: `JsEngine` trait + `BoaEngine` backend.
 - `beeno-engine-v8`: V8 backend scaffold behind `JsEngine`.
 - `beeno-compiler`: source routing + provider/model-aware compile cache.
@@ -62,6 +63,17 @@ Routing errors are now rendered as readable multi-line attempt summaries.
 Cargo aliases in `.cargo/config.toml`:
 - `cargo beeno ...`
 - `cargo btest`
+
+## Bundle Flow
+
+`beeno bundle <file>` uses the same compile path/options as `beeno run` but skips execution and writes the generated JavaScript to disk.
+
+## Self-Heal Flow (Run)
+
+`beeno run <file> --self-heal` adds an error-recovery loop for JavaScript files:
+- execute
+- on runtime failure, request an LLM-generated full-file patch
+- rewrite file and retry (bounded by `--max-heal-attempts`)
 
 ## Next Major Milestone
 

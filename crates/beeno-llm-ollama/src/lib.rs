@@ -66,7 +66,9 @@ impl LlmClient for OllamaClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body = response.text().unwrap_or_else(|_| "<unavailable>".to_string());
+            let body = response
+                .text()
+                .unwrap_or_else(|_| "<unavailable>".to_string());
             return Err(anyhow!("Ollama request failed ({status}): {body}"));
         }
 
@@ -114,8 +116,8 @@ mod tests {
 
         let base = std::env::var("BEENO_OLLAMA_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
-        let model = std::env::var("BEENO_OLLAMA_MODEL")
-            .unwrap_or_else(|_| "qwen2.5-coder:7b".to_string());
+        let model =
+            std::env::var("BEENO_OLLAMA_MODEL").unwrap_or_else(|_| "qwen2.5-coder:7b".to_string());
 
         let client = OllamaClient::new(base).expect("client should build");
         let req = LlmTranslateRequest {

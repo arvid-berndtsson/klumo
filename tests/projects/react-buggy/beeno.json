@@ -1,0 +1,6 @@
+{
+  "provider": "ollama",
+  "lang": "jsx",
+  "force_llm": true,
+  "progress": "auto"
+}

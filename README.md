@@ -26,6 +26,7 @@ Beeno is a standalone runtime in Rust with LLM-assisted compilation for non-JS i
 
 ```bash
 cargo run -p beeno -- run examples/hello.js
+cargo run -p beeno -- bundle examples/hello.pseudocode --provider ollama --force-llm -o dist/hello.js
 cargo run -p beeno -- eval "1 + 2 + 3"
 cargo run -p beeno -- repl
 ```
@@ -50,10 +51,33 @@ cargo btest
 - `--ollama-url <url>`
 - `--model <name>`
 - `--force-llm`
+- `--self-heal`
+- `--max-heal-attempts <n>`
 - `--print-js`
 - `--no-cache`
 - `--verbose`
 - `--no-progress`
+
+Self-heal mode:
+- When enabled for JS files (`.js/.mjs/.cjs/.jsx`), runtime crashes trigger an LLM patch attempt.
+- Beeno rewrites the source file with the generated fix and retries execution.
+- A backup is written once to `<file>.beeno.bak` before the first patch.
+
+## `beeno bundle`
+
+Compile a source file to JavaScript without executing it.
+
+Examples:
+
+```bash
+beeno bundle examples/hello.js
+beeno bundle examples/hello.pseudocode --provider ollama --force-llm -o dist/hello.js
+```
+
+Behavior:
+- Default output path is `<input>.bundle.js` when `--output` is not provided.
+- Uses the same config/env/provider resolution as `beeno run`.
+- Produces JS artifacts you can run later with `beeno run <bundle.js>` without LLM translation.
 
 ## `beeno.json` (project defaults)
 
@@ -119,6 +143,16 @@ When `--verbose` is used and the run goes through LLM compilation, Beeno prints 
 
 ```bash
 cargo test --workspace
+```
+
+Root smoke checks:
+
+```bash
+bash tests/smoke/offline.sh
+bash tests/smoke/offline_repl.sh
+bash tests/smoke/offline_self_heal.sh
+BEENO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama.sh
+BEENO_RUN_LIVE_TESTS=1 bash tests/smoke/live_ollama_react_project.sh
 ```
 
 Live provider tests remain ignored by default and are gated by:

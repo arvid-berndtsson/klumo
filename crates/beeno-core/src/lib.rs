@@ -30,6 +30,26 @@ pub struct RunOutcome {
     pub eval: EvalOutput,
 }
 
+pub fn compile_file<C>(compiler: &C, path: &Path, options: &RunOptions) -> Result<CompileResult>
+where
+    C: Compiler,
+{
+    let source = fs::read_to_string(path)
+        .with_context(|| format!("failed reading script file {}", path.display()))?;
+
+    compiler.compile(&CompileRequest {
+        source_text: source,
+        source_id: path.display().to_string(),
+        kind_hint: options.kind_hint.clone(),
+        language_hint: options.language_hint.clone(),
+        scope_context: None,
+        force_llm: options.force_llm,
+        provider_selection: options.provider_selection,
+        model_override: options.model_override.clone(),
+        no_cache: options.no_cache,
+    })
+}
+
 pub fn run_file<E, C>(
     engine: &mut E,
     compiler: &C,
@@ -43,23 +63,10 @@ where
     if matches!(options.progress_mode, ProgressMode::Verbose) {
         eprintln!("[beeno] loading source {}", path.display());
     }
-    let source = fs::read_to_string(path)
-        .with_context(|| format!("failed reading script file {}", path.display()))?;
-
     if matches!(options.progress_mode, ProgressMode::Verbose) {
         eprintln!("[beeno] compiling source (force_llm={})", options.force_llm);
     }
-    let compile = compiler.compile(&CompileRequest {
-        source_text: source,
-        source_id: path.display().to_string(),
-        kind_hint: options.kind_hint.clone(),
-        language_hint: options.language_hint.clone(),
-        scope_context: None,
-        force_llm: options.force_llm,
-        provider_selection: options.provider_selection,
-        model_override: options.model_override.clone(),
-        no_cache: options.no_cache,
-    })?;
+    let compile = compile_file(compiler, path, options)?;
 
     let llm_path = compile.metadata.provider.is_some();
     if options.print_js || (matches!(options.progress_mode, ProgressMode::Verbose) && llm_path) {
