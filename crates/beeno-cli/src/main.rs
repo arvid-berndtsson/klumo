@@ -26,6 +26,7 @@ use std::thread;
 use std::time::Duration;
 
 const REPL_HISTORY_LIMIT: usize = 20;
+const REPL_SELF_HEAL_ATTEMPTS: usize = 2;
 const DEFAULT_WEB_HOST: &str = "127.0.0.1";
 const DEFAULT_WEB_PORT: u16 = 4173;
 
@@ -328,6 +329,60 @@ fn push_bounded(history: &mut VecDeque<String>, item: String, cap: usize) {
     while history.len() > cap {
         history.pop_front();
     }
+}
+
+fn build_repl_self_heal_request(
+    user_prompt: &str,
+    generated_js: Option<&str>,
+    error_text: &str,
+    attempt: usize,
+) -> String {
+    let js_section = generated_js
+        .map(|js| format!("Previously generated JavaScript that failed:\n{js}\n\n"))
+        .unwrap_or_default();
+    format!(
+        "Repair the REPL translation so it executes successfully in this session.\n\
+Return ONLY runnable JavaScript script statements. No markdown, no prose, no import/export.\n\
+Preserve user intent as much as possible.\n\
+Attempt: {}\n\
+Original REPL prompt:\n{}\n\n\
+{}\
+Observed error:\n{}\n",
+        attempt + 1,
+        user_prompt,
+        js_section,
+        error_text
+    )
+}
+
+fn compile_repl_heal_candidate(
+    compiler: &BeenoCompiler,
+    repl_lang: &str,
+    provider_selection: ProviderSelection,
+    model_override: Option<String>,
+    no_cache: bool,
+    scope_context: Option<String>,
+    heal_prompt: String,
+    attempt: usize,
+) -> Result<String> {
+    let healed = compiler.compile(&CompileRequest {
+        source_text: heal_prompt,
+        source_id: format!("<repl-self-heal-{attempt}>"),
+        kind_hint: Some(SourceKind::Unknown(repl_lang.to_string())),
+        language_hint: Some(repl_lang.to_string()),
+        scope_context,
+        force_llm: true,
+        provider_selection,
+        model_override,
+        no_cache,
+    })?;
+    let sanitized_js = sanitize_repl_javascript(&healed.javascript);
+    if sanitized_js.trim().is_empty() {
+        return Err(anyhow!(
+            "self-heal generated empty JavaScript after module-syntax cleanup"
+        ));
+    }
+    Ok(sanitized_js)
 }
 
 fn guess_content_type(path: &Path) -> &'static str {
@@ -1598,56 +1653,158 @@ fn repl_command(
             no_cache: resolved.no_cache,
         });
 
-        match compiled {
+        let mut candidate_js = match compiled {
             Ok(compiled) => {
                 let sanitized_js = sanitize_repl_javascript(&compiled.javascript);
                 if sanitized_js.trim().is_empty() {
                     eprintln!("error: translated REPL code was empty after removing module syntax");
                     continue;
                 }
-
-                if resolved.verbose || resolved.print_js {
-                    println!("/* ===== generated JavaScript ===== */");
-                    println!("{}", sanitized_js);
-                    println!("/* ===== end generated JavaScript ===== */");
-                }
-
-                match engine.as_mut().eval_script(&sanitized_js, "<repl>") {
-                    Ok(output) => {
-                        push_bounded(
-                            &mut statement_history,
-                            trimmed.to_string(),
-                            REPL_HISTORY_LIMIT,
-                        );
-                        push_bounded(&mut js_history, sanitized_js.clone(), REPL_HISTORY_LIMIT);
-
-                        if let Some(value) = output.value {
-                            println!("{value}");
+                sanitized_js
+            }
+            Err(err) => {
+                let mut healed: Option<String> = None;
+                let initial_error = format!("{err:#}");
+                for attempt in 0..REPL_SELF_HEAL_ATTEMPTS {
+                    eprintln!(
+                        "[beeno] repl translation failed, attempting self-heal ({}/{})",
+                        attempt + 1,
+                        REPL_SELF_HEAL_ATTEMPTS
+                    );
+                    let heal_prompt =
+                        build_repl_self_heal_request(trimmed, None, &initial_error, attempt);
+                    let heal_scope = build_repl_scope_context(
+                        &known_bindings,
+                        &statement_history,
+                        &js_history,
+                        Some(&web_server_scope_text(&web_server)),
+                    );
+                    match compile_repl_heal_candidate(
+                        &compiler,
+                        &repl_lang,
+                        provider_selection,
+                        cli_overrides.model.clone(),
+                        resolved.no_cache,
+                        heal_scope,
+                        heal_prompt,
+                        attempt,
+                    ) {
+                        Ok(js) => {
+                            healed = Some(js);
+                            break;
                         }
-                        if let Ok(current) = read_global_names(engine.as_mut()) {
-                            known_bindings = current
-                                .difference(&baseline_globals)
-                                .filter(|name| !name.starts_with("__beeno_"))
-                                .cloned()
-                                .collect();
+                        Err(heal_err) => {
+                            eprintln!("error: self-heal compile failed: {heal_err:#}");
                         }
                     }
-                    Err(err) => eprintln!("error: {err:#}"),
                 }
-
-                match drain_repl_web_commands(engine.as_mut()) {
-                    Ok(commands) => {
-                        if let Err(err) = apply_repl_web_commands(commands, &mut web_server) {
-                            eprintln!("error: {err:#}");
-                        }
+                match healed {
+                    Some(js) => js,
+                    None => {
+                        eprintln!("error: {initial_error}");
+                        continue;
                     }
-                    Err(err) => eprintln!("error: failed reading JS web command queue: {err:#}"),
-                }
-                if let Err(err) = write_repl_web_status(engine.as_mut(), &web_server) {
-                    eprintln!("error: failed refreshing JS web status: {err:#}");
                 }
             }
-            Err(err) => eprintln!("error: {err:#}"),
+        };
+
+        if resolved.verbose || resolved.print_js {
+            println!("/* ===== generated JavaScript ===== */");
+            println!("{}", candidate_js);
+            println!("/* ===== end generated JavaScript ===== */");
+        }
+
+        let mut eval_output = None;
+        let mut final_runtime_error: Option<String> = None;
+        for attempt in 0..=REPL_SELF_HEAL_ATTEMPTS {
+            match engine.as_mut().eval_script(&candidate_js, "<repl>") {
+                Ok(output) => {
+                    eval_output = Some(output);
+                    break;
+                }
+                Err(err) => {
+                    let err_text = format!("{err:#}");
+                    if attempt >= REPL_SELF_HEAL_ATTEMPTS {
+                        final_runtime_error = Some(err_text);
+                        break;
+                    }
+                    eprintln!(
+                        "[beeno] repl runtime failed, attempting self-heal ({}/{})",
+                        attempt + 1,
+                        REPL_SELF_HEAL_ATTEMPTS
+                    );
+                    let heal_prompt = build_repl_self_heal_request(
+                        trimmed,
+                        Some(&candidate_js),
+                        &err_text,
+                        attempt,
+                    );
+                    let heal_scope = build_repl_scope_context(
+                        &known_bindings,
+                        &statement_history,
+                        &js_history,
+                        Some(&web_server_scope_text(&web_server)),
+                    );
+                    match compile_repl_heal_candidate(
+                        &compiler,
+                        &repl_lang,
+                        provider_selection,
+                        cli_overrides.model.clone(),
+                        resolved.no_cache,
+                        heal_scope,
+                        heal_prompt,
+                        attempt,
+                    ) {
+                        Ok(healed_js) => {
+                            candidate_js = healed_js;
+                            if resolved.verbose || resolved.print_js {
+                                println!("/* ===== healed JavaScript ===== */");
+                                println!("{}", candidate_js);
+                                println!("/* ===== end healed JavaScript ===== */");
+                            }
+                        }
+                        Err(heal_err) => {
+                            eprintln!("error: self-heal compile failed: {heal_err:#}");
+                            final_runtime_error = Some(err_text);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(output) = eval_output {
+            push_bounded(
+                &mut statement_history,
+                trimmed.to_string(),
+                REPL_HISTORY_LIMIT,
+            );
+            push_bounded(&mut js_history, candidate_js.clone(), REPL_HISTORY_LIMIT);
+
+            if let Some(value) = output.value {
+                println!("{value}");
+            }
+            if let Ok(current) = read_global_names(engine.as_mut()) {
+                known_bindings = current
+                    .difference(&baseline_globals)
+                    .filter(|name| !name.starts_with("__beeno_"))
+                    .cloned()
+                    .collect();
+            }
+        } else if let Some(err) = final_runtime_error {
+            eprintln!("error: {err}");
+        }
+
+        match drain_repl_web_commands(engine.as_mut()) {
+            Ok(commands) => {
+                if let Err(err) = apply_repl_web_commands(commands, &mut web_server) {
+                    eprintln!("error: {err:#}");
+                }
+            }
+            Err(err) => eprintln!("error: failed reading JS web command queue: {err:#}"),
+        }
+        if let Err(err) = write_repl_web_status(engine.as_mut(), &web_server) {
+            eprintln!("error: failed refreshing JS web status: {err:#}");
         }
     }
 
