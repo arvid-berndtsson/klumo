@@ -13,9 +13,11 @@ use beeno_llm::{
 use beeno_llm_ollama::OllamaClient;
 use beeno_llm_openai::OpenAiCompatibleClient;
 use clap::{Parser, Subcommand, ValueEnum};
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::io::{self, Write};
 use std::path::PathBuf;
+
+const REPL_HISTORY_LIMIT: usize = 20;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ProviderArg {
@@ -172,6 +174,57 @@ fn scope_context_text(bindings: &HashSet<String>) -> Option<String> {
         "Bindings currently defined in this REPL session: {}. Avoid redeclaring them with const/let/class.",
         names.join(", ")
     ))
+}
+
+fn joined_recent_entries(history: &VecDeque<String>) -> Option<String> {
+    if history.is_empty() {
+        return None;
+    }
+
+    let joined = history
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| format!("{}. {}", idx + 1, item))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Some(joined)
+}
+
+fn build_repl_scope_context(
+    bindings: &HashSet<String>,
+    statement_history: &VecDeque<String>,
+    js_history: &VecDeque<String>,
+) -> Option<String> {
+    let mut sections = Vec::new();
+
+    if let Some(bindings_text) = scope_context_text(bindings) {
+        sections.push(bindings_text);
+    }
+    if let Some(statements) = joined_recent_entries(statement_history) {
+        sections.push(format!(
+            "Previously run REPL statements (oldest to newest):\n{}",
+            statements
+        ));
+    }
+    if let Some(js_snippets) = joined_recent_entries(js_history) {
+        sections.push(format!(
+            "Previously generated JavaScript snippets (oldest to newest):\n{}",
+            js_snippets
+        ));
+    }
+
+    if sections.is_empty() {
+        None
+    } else {
+        Some(sections.join("\n\n"))
+    }
+}
+
+fn push_bounded(history: &mut VecDeque<String>, item: String, cap: usize) {
+    history.push_back(item);
+    while history.len() > cap {
+        history.pop_front();
+    }
 }
 
 fn provider_to_selection(provider: ProviderSetting) -> ProviderSelection {
@@ -331,6 +384,8 @@ fn repl_command(
     let mut engine = build_engine()?;
     let baseline_globals = read_global_names(engine.as_mut())?;
     let mut known_bindings: HashSet<String> = HashSet::new();
+    let mut statement_history: VecDeque<String> = VecDeque::new();
+    let mut js_history: VecDeque<String> = VecDeque::new();
     let mut line = String::new();
     let repl_lang = resolved
         .lang
@@ -364,7 +419,11 @@ fn repl_command(
             source_id: "<repl>".to_string(),
             kind_hint: Some(SourceKind::Unknown(repl_lang.clone())),
             language_hint: Some(repl_lang.clone()),
-            scope_context: scope_context_text(&known_bindings),
+            scope_context: build_repl_scope_context(
+                &known_bindings,
+                &statement_history,
+                &js_history,
+            ),
             force_llm: true,
             provider_selection,
             model_override: cli_overrides.model.clone(),
@@ -387,6 +446,13 @@ fn repl_command(
 
                 match engine.as_mut().eval_script(&sanitized_js, "<repl>") {
                     Ok(output) => {
+                        push_bounded(
+                            &mut statement_history,
+                            trimmed.to_string(),
+                            REPL_HISTORY_LIMIT,
+                        );
+                        push_bounded(&mut js_history, sanitized_js.clone(), REPL_HISTORY_LIMIT);
+
                         if let Some(value) = output.value {
                             println!("{value}");
                         }
@@ -406,6 +472,43 @@ fn repl_command(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_repl_scope_context, push_bounded, REPL_HISTORY_LIMIT};
+    use std::collections::{HashSet, VecDeque};
+
+    #[test]
+    fn repl_scope_context_includes_bindings_and_history() {
+        let mut bindings = HashSet::new();
+        bindings.insert("hello".to_string());
+        bindings.insert("count".to_string());
+
+        let statements = VecDeque::from(vec![
+            "store 2 in hello variable".to_string(),
+            "print hello variable".to_string(),
+        ]);
+        let js = VecDeque::from(vec![
+            "const hello = 2;".to_string(),
+            "console.log(hello);".to_string(),
+        ]);
+
+        let context = build_repl_scope_context(&bindings, &statements, &js).expect("context");
+        assert!(context.contains("Bindings currently defined"));
+        assert!(context.contains("Previously run REPL statements"));
+        assert!(context.contains("Previously generated JavaScript snippets"));
+    }
+
+    #[test]
+    fn push_bounded_trims_old_entries() {
+        let mut history = VecDeque::new();
+        for i in 0..=(REPL_HISTORY_LIMIT + 2) {
+            push_bounded(&mut history, format!("entry-{i}"), REPL_HISTORY_LIMIT);
+        }
+        assert_eq!(history.len(), REPL_HISTORY_LIMIT);
+        assert_eq!(history.front().expect("front"), "entry-3");
+    }
 }
 
 fn main() -> Result<()> {
