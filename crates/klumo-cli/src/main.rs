@@ -1,8 +1,11 @@
+mod cli_defaults;
+mod project_commands;
+
 use anyhow::{Context, Result, anyhow};
 use klumo_compiler::{CompileRequest, Compiler, CompilerRouter, FileCompileCache, SourceKind};
 use klumo_config::{
-    CliRunOverrides, EnvConfig, FileConfig, ProgressSetting, ProviderSetting, RunDefaults,
-    load_file_config, resolve_run_defaults,
+    CliRunOverrides, EnvConfig, ProgressSetting, ProviderSetting, RunDefaults, load_file_config,
+    resolve_run_defaults,
 };
 use klumo_core::{ProgressMode, RunOptions, compile_file, eval_inline, run_file};
 use klumo_engine::{BoaEngine, JsEngine};
@@ -252,66 +255,11 @@ fn normalize_cli_args<I>(args: I) -> Vec<OsString>
 where
     I: IntoIterator<Item = OsString>,
 {
-    let mut normalized: Vec<OsString> = args.into_iter().collect();
-    if normalized.len() < 2 {
-        return normalized;
-    }
-
-    let first = normalized[1].to_string_lossy();
-    let is_known_subcommand = matches!(
-        first.as_ref(),
-        "run"
-            | "bundle"
-            | "install"
-            | "i"
-            | "lint"
-            | "fmt"
-            | "test"
-            | "eval"
-            | "repl"
-    );
-    let is_flag = first.starts_with('-');
-
-    if !is_known_subcommand && !is_flag {
-        normalized.insert(1, OsString::from("run"));
-    }
-
-    normalized
-}
-
-fn predefined_command_names() -> &'static [&'static str] {
-    &[
-        "run", "bundle", "install", "i", "lint", "fmt", "test", "eval", "repl",
-    ]
-}
-
-fn predefined_script_collisions(cfg: &FileConfig) -> Vec<String> {
-    let Some(scripts) = cfg.scripts.as_ref() else {
-        return Vec::new();
-    };
-
-    scripts
-        .keys()
-        .filter(|name| predefined_command_names().contains(&name.as_str()))
-        .cloned()
-        .collect()
+    cli_defaults::normalize_cli_args(args)
 }
 
 fn warn_predefined_script_collisions() -> Result<()> {
-    let cwd = std::env::current_dir().context("failed resolving current directory")?;
-    let cfg = load_file_config(None, &cwd)?;
-    let Some(cfg) = cfg else {
-        return Ok(());
-    };
-
-    for name in predefined_script_collisions(&cfg) {
-        eprintln!(
-            "[klumo] warning: scripts.{name} in {}/klumo.json conflicts with a built-in command and may be ignored",
-            cwd.display()
-        );
-    }
-
-    Ok(())
+    cli_defaults::warn_predefined_script_collisions()
 }
 
 fn sanitize_repl_javascript(input: &str) -> String {
@@ -1432,242 +1380,27 @@ fn build_engine() -> Result<Box<dyn JsEngine>> {
 }
 
 fn resolve_run_script_target(config: Option<&Path>, target: &Path) -> Result<Option<String>> {
-    let script_name = match target.to_str() {
-        Some(value) => value,
-        None => return Ok(None),
-    };
-    let cwd = std::env::current_dir().context("failed resolving current directory")?;
-    let file_cfg = load_file_config(config, &cwd)?;
-    Ok(file_cfg
-        .and_then(|cfg| cfg.scripts)
-        .and_then(|scripts| scripts.get(script_name).cloned()))
-}
-
-fn resolve_install_config(config: Option<&Path>) -> Result<klumo_config::FileConfig> {
-    let cwd = std::env::current_dir().context("failed resolving current directory")?;
-    load_file_config(config, &cwd)?
-        .ok_or_else(|| anyhow!("klumo.json not found in {}", cwd.display()))
-}
-
-fn resolve_project_script(name: &str) -> Result<Option<String>> {
-    let cwd = std::env::current_dir().context("failed resolving current directory")?;
-    let cfg = load_file_config(None, &cwd)?;
-    Ok(cfg
-        .and_then(|file| file.scripts)
-        .and_then(|scripts| scripts.get(name).cloned()))
-}
-
-fn command_available(program: &str) -> bool {
-    Command::new(program).arg("--version").status().is_ok()
-}
-
-fn should_prefer_deno_tooling(cwd: &Path) -> bool {
-    let has_deno_config = cwd.join("deno.json").exists() || cwd.join("deno.jsonc").exists();
-    if has_deno_config {
-        return true;
-    }
-
-    let has_cargo_manifest = cwd.join("Cargo.toml").exists();
-    let has_js_ts_manifest = cwd.join("package.json").exists()
-        || cwd.join("tsconfig.json").exists()
-        || cwd.join("jsconfig.json").exists();
-
-    has_js_ts_manifest && !has_cargo_manifest
-}
-
-fn use_deno_default() -> Result<bool> {
-    if !command_available("deno") {
-        return Ok(false);
-    }
-    let cwd = std::env::current_dir().context("failed resolving current directory")?;
-    Ok(should_prefer_deno_tooling(&cwd))
-}
-
-fn dependency_to_jsr_spec(name: &str, version: &str) -> String {
-    let dep = name.trim();
-    let version = version.trim();
-
-    let base = if dep.starts_with("jsr:") {
-        dep.to_string()
-    } else {
-        format!("jsr:{dep}")
-    };
-
-    if version.is_empty() {
-        return base;
-    }
-
-    format!("{base}@{version}")
+    project_commands::resolve_run_script_target(config, target)
 }
 
 fn install_dependencies(config: Option<PathBuf>, dry_run: bool) -> Result<()> {
-    let cfg = resolve_install_config(config.as_deref())?;
-
-    if let Some(install_script) = cfg.scripts.and_then(|scripts| scripts.get("install").cloned()) {
-        if dry_run {
-            println!("dry-run: would run install script: {install_script}");
-            return Ok(());
-        }
-        run_script_command("install", &install_script)?;
-        return Ok(());
-    }
-
-    let deps = cfg.dependencies.unwrap_or_default();
-    if deps.is_empty() {
-        println!("No dependencies found in klumo.json.");
-        return Ok(());
-    }
-
-    let deno_check = Command::new("deno")
-        .arg("--version")
-        .status()
-        .context("failed to execute 'deno --version'")?;
-    if !deno_check.success() {
-        return Err(anyhow!(
-            "deno is required to install dependencies. Install deno or add scripts.install in klumo.json."
-        ));
-    }
-
-    for (name, version) in deps {
-        let spec = dependency_to_jsr_spec(&name, &version);
-        if dry_run {
-            println!("dry-run: deno cache {spec}");
-            continue;
-        }
-
-        println!("Installing {spec}");
-        let status = Command::new("deno")
-            .args(["cache", spec.as_str()])
-            .status()
-            .with_context(|| format!("failed running 'deno cache {spec}'"))?;
-        if !status.success() {
-            return Err(anyhow!("dependency install failed for {spec}"));
-        }
-    }
-
-    Ok(())
-}
-
-fn run_command_with_status(program: &str, args: &[OsString], display: &str) -> Result<()> {
-    let status = Command::new(program)
-        .args(args)
-        .status()
-        .with_context(|| format!("failed running {program} {display}"))?;
-
-    if status.success() {
-        return Ok(());
-    }
-
-    Err(anyhow!(
-        "{program} {} failed with exit status {}",
-        display,
-        status
-    ))
+    project_commands::install_dependencies(config, dry_run)
 }
 
 fn lint_command(paths: Vec<PathBuf>, fix: bool) -> Result<()> {
-    if let Some(script) = resolve_project_script("lint")? {
-        return run_script_command("lint", &script);
-    }
-
-    if use_deno_default()? {
-        let mut args = vec![OsString::from("lint")];
-        if fix {
-            args.push(OsString::from("--fix"));
-        }
-        for path in paths {
-            args.push(path.into_os_string());
-        }
-        return run_command_with_status("deno", &args, "lint");
-    }
-
-    let mut args = vec![
-        OsString::from("clippy"),
-        OsString::from("--all-targets"),
-        OsString::from("--all-features"),
-    ];
-    if fix {
-        args.push(OsString::from("--fix"));
-        args.push(OsString::from("--allow-dirty"));
-        args.push(OsString::from("--allow-staged"));
-    }
-    for path in paths {
-        args.push(path.into_os_string()); // interpreted by clippy as package/spec args
-    }
-    run_command_with_status("cargo", &args, "clippy")
+    project_commands::lint_command(paths, fix)
 }
 
 fn fmt_command(paths: Vec<PathBuf>, check: bool) -> Result<()> {
-    if let Some(script) = resolve_project_script("fmt")? {
-        return run_script_command("fmt", &script);
-    }
-
-    if use_deno_default()? {
-        let mut args = vec![OsString::from("fmt")];
-        if check {
-            args.push(OsString::from("--check"));
-        }
-        for path in paths {
-            args.push(path.into_os_string());
-        }
-        return run_command_with_status("deno", &args, "fmt");
-    }
-
-    if !paths.is_empty() {
-        eprintln!(
-            "[klumo] warning: 'klumo fmt <paths...>' is not supported for cargo fmt; formatting full workspace instead"
-        );
-    }
-
-    let mut args = vec![OsString::from("fmt"), OsString::from("--all")];
-    if check {
-        args.push(OsString::from("--check"));
-    }
-    run_command_with_status("cargo", &args, "fmt")
+    project_commands::fmt_command(paths, check)
 }
 
 fn test_command(paths: Vec<PathBuf>) -> Result<()> {
-    if let Some(script) = resolve_project_script("test")? {
-        return run_script_command("test", &script);
-    }
-
-    if use_deno_default()? {
-        let mut args = vec![OsString::from("test")];
-        for path in paths {
-            args.push(path.into_os_string());
-        }
-        return run_command_with_status("deno", &args, "test");
-    }
-
-    let mut args = vec![OsString::from("test")];
-    for path in paths {
-        args.push(path.into_os_string()); // interpreted as test filters
-    }
-    run_command_with_status("cargo", &args, "test")
+    project_commands::test_command(paths)
 }
 
 fn run_script_command(script_name: &str, command_line: &str) -> Result<()> {
-    #[cfg(windows)]
-    let status = Command::new("cmd")
-        .args(["/C", command_line])
-        .status()
-        .with_context(|| format!("failed running script '{script_name}'"))?;
-
-    #[cfg(not(windows))]
-    let status = Command::new("sh")
-        .args(["-lc", command_line])
-        .status()
-        .with_context(|| format!("failed running script '{script_name}'"))?;
-
-    if status.success() {
-        return Ok(());
-    }
-
-    Err(anyhow!(
-        "script '{}' failed with exit status {}",
-        script_name,
-        status
-    ))
+    project_commands::run_script_command(script_name, command_line)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2226,10 +1959,10 @@ mod tests {
     use super::{
         DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, REPL_HISTORY_LIMIT, backup_path_for,
         build_repl_scope_context, build_repl_self_heal_request, build_self_heal_request,
-        can_continue_self_heal, dependency_to_jsr_spec, is_non_recoverable_self_heal_error,
-        is_self_heal_supported_source, normalize_cli_args, parse_web_start,
-        predefined_script_collisions, push_bounded, route_path, should_prefer_deno_tooling,
+        can_continue_self_heal, is_non_recoverable_self_heal_error, is_self_heal_supported_source,
+        normalize_cli_args, parse_web_start, push_bounded, route_path,
     };
+    use super::{cli_defaults, project_commands};
     use klumo_config::FileConfig;
     use std::collections::{HashSet, VecDeque};
     use std::ffi::OsString;
@@ -2363,15 +2096,15 @@ mod tests {
     #[test]
     fn dependency_to_jsr_spec_supports_scoped_packages() {
         assert_eq!(
-            dependency_to_jsr_spec("@arvid/is-char", "latest"),
+            project_commands::dependency_to_jsr_spec("@arvid/is-char", "latest"),
             "jsr:@arvid/is-char@latest"
         );
         assert_eq!(
-            dependency_to_jsr_spec("jsr:@scope/pkg", "1.2.3"),
+            project_commands::dependency_to_jsr_spec("jsr:@scope/pkg", "1.2.3"),
             "jsr:@scope/pkg@1.2.3"
         );
         assert_eq!(
-            dependency_to_jsr_spec("@scope/pkg", ""),
+            project_commands::dependency_to_jsr_spec("@scope/pkg", ""),
             "jsr:@scope/pkg"
         );
     }
@@ -2415,7 +2148,7 @@ mod tests {
             ..FileConfig::default()
         };
 
-        let collisions = predefined_script_collisions(&cfg);
+        let collisions = cli_defaults::predefined_script_collisions(&cfg);
         assert_eq!(collisions, vec!["i".to_string(), "lint".to_string()]);
     }
 
@@ -2423,7 +2156,7 @@ mod tests {
     fn deno_tooling_preferred_for_deno_config_projects() {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("deno.json"), "{}").expect("write deno.json");
-        assert!(should_prefer_deno_tooling(dir.path()));
+        assert!(project_commands::should_prefer_deno_tooling(dir.path()));
     }
 
     #[test]
@@ -2432,7 +2165,7 @@ mod tests {
         std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname='x'\nversion='0.1.0'")
             .expect("write Cargo.toml");
         std::fs::write(dir.path().join("package.json"), "{}").expect("write package.json");
-        assert!(!should_prefer_deno_tooling(dir.path()));
+        assert!(!project_commands::should_prefer_deno_tooling(dir.path()));
     }
 }
 
