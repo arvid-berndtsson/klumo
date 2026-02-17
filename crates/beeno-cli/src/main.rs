@@ -13,14 +13,15 @@ use beeno_llm::{
 use beeno_llm_ollama::OllamaClient;
 use beeno_llm_openai::OpenAiCompatibleClient;
 use clap::{Parser, Subcommand, ValueEnum};
-use std::collections::{HashSet, VecDeque};
+use serde_json::Value as JsonValue;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -34,6 +35,15 @@ struct WebServerConfig {
     port: u16,
     root_dir: PathBuf,
 }
+
+#[derive(Debug, Clone)]
+struct ApiRoute {
+    status: u16,
+    content_type: String,
+    body: Vec<u8>,
+}
+
+type SharedApiRoutes = Arc<Mutex<HashMap<String, ApiRoute>>>;
 
 #[derive(Debug)]
 struct WebServerHandle {
@@ -52,10 +62,21 @@ impl WebServerHandle {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct WebServerState {
     active: Option<WebServerHandle>,
     last_config: Option<WebServerConfig>,
+    api_routes: SharedApiRoutes,
+}
+
+impl Default for WebServerState {
+    fn default() -> Self {
+        Self {
+            active: None,
+            last_config: None,
+            api_routes: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
 }
 
 impl Drop for WebServerState {
@@ -351,6 +372,20 @@ fn write_http_response(
     Ok(())
 }
 
+fn status_text(code: u16) -> &'static str {
+    match code {
+        200 => "OK",
+        201 => "Created",
+        202 => "Accepted",
+        204 => "No Content",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        500 => "Internal Server Error",
+        _ => "OK",
+    }
+}
+
 fn decode_percent_path(path: &str) -> Option<String> {
     let mut out = Vec::with_capacity(path.len());
     let bytes = path.as_bytes();
@@ -389,7 +424,11 @@ fn resolve_request_path(root: &Path, raw_path: &str) -> Option<PathBuf> {
     Some(candidate)
 }
 
-fn handle_web_connection(mut stream: TcpStream, root: &Path) -> Result<()> {
+fn handle_web_connection(
+    mut stream: TcpStream,
+    root: &Path,
+    api_routes: &SharedApiRoutes,
+) -> Result<()> {
     let mut buffer = [0_u8; 16_384];
     let read = stream.read(&mut buffer)?;
     if read == 0 {
@@ -415,6 +454,23 @@ fn handle_web_connection(mut stream: TcpStream, root: &Path) -> Result<()> {
             b"Method Not Allowed",
             head_only,
         );
+    }
+
+    let path_without_query = raw_path.split('?').next().unwrap_or("/");
+    let normalized_request_path =
+        decode_percent_path(path_without_query).unwrap_or_else(|| path_without_query.to_string());
+
+    if let Ok(routes) = api_routes.lock() {
+        if let Some(route) = routes.get(&normalized_request_path) {
+            let status = format!("{} {}", route.status, status_text(route.status));
+            return write_http_response(
+                &mut stream,
+                &status,
+                &route.content_type,
+                &route.body,
+                head_only,
+            );
+        }
     }
 
     let mut target = match resolve_request_path(root, raw_path) {
@@ -471,7 +527,10 @@ fn handle_web_connection(mut stream: TcpStream, root: &Path) -> Result<()> {
     )
 }
 
-fn start_web_server(config: &WebServerConfig) -> Result<WebServerHandle> {
+fn start_web_server(
+    config: &WebServerConfig,
+    api_routes: SharedApiRoutes,
+) -> Result<WebServerHandle> {
     let root_dir = config.root_dir.canonicalize().with_context(|| {
         format!(
             "failed resolving web root directory {}",
@@ -502,6 +561,7 @@ fn start_web_server(config: &WebServerConfig) -> Result<WebServerHandle> {
         .port();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let root_for_thread = root_dir.clone();
+    let routes_for_thread = api_routes;
 
     let join_handle = thread::spawn(move || {
         loop {
@@ -510,7 +570,9 @@ fn start_web_server(config: &WebServerConfig) -> Result<WebServerHandle> {
             }
             match listener.accept() {
                 Ok((stream, _)) => {
-                    if let Err(err) = handle_web_connection(stream, &root_for_thread) {
+                    if let Err(err) =
+                        handle_web_connection(stream, &root_for_thread, &routes_for_thread)
+                    {
                         eprintln!("error: web daemon request failed: {err:#}");
                     }
                 }
@@ -573,15 +635,382 @@ fn prompt_yes_no(prompt: &str) -> Result<bool> {
 }
 
 fn web_server_scope_text(state: &WebServerState) -> String {
+    let route_count = state
+        .api_routes
+        .lock()
+        .map(|routes| routes.len())
+        .unwrap_or_default();
     if let Some(active) = state.active.as_ref() {
         return format!(
-            "Web daemon is running at {} and serving files from {}. File changes are reflected on refresh because content is read from disk per request. REPL control commands: .web status | .web open | .web stop | .web restart.",
+            "Web daemon is running at {} and serving files from {}. Registered API routes: {}. File changes are reflected on refresh because content is read from disk per request. JavaScript APIs available in REPL: beeno.web.start(opts), beeno.web.stop(), beeno.web.restart(opts), beeno.web.status(), beeno.web.open(), beeno.web.routeJson(path, payload, opts), beeno.web.routeText(path, text, opts), beeno.web.unroute(path).",
             active.url,
-            active.config.root_dir.display()
+            active.config.root_dir.display(),
+            route_count
         );
     }
 
-    "Web daemon is not running. REPL control commands: .web start --dir <path> [--port <n>] [--host <ip>] [--open|--no-open|--no-open-prompt], .web status, .web restart.".to_string()
+    format!(
+        "Web daemon is not running. Registered API routes: {}. JavaScript APIs available in REPL: beeno.web.start(opts), beeno.web.stop(), beeno.web.restart(opts), beeno.web.status(), beeno.web.open(), beeno.web.routeJson(path, payload, opts), beeno.web.routeText(path, text, opts), beeno.web.unroute(path).",
+        route_count
+    )
+}
+
+fn install_repl_web_javascript_api(engine: &mut dyn JsEngine) -> Result<()> {
+    engine.eval_script(
+        r#"
+globalThis.beeno = globalThis.beeno || {};
+globalThis.__beeno_web_commands = Array.isArray(globalThis.__beeno_web_commands)
+  ? globalThis.__beeno_web_commands
+  : [];
+globalThis.__beeno_web_status = globalThis.__beeno_web_status || { running: false };
+const __beenoQueueWeb = (command) => {
+  globalThis.__beeno_web_commands.push(command);
+  return { queued: true, action: command.action };
+};
+globalThis.beeno.web = {
+  start: (options = {}) => __beenoQueueWeb({ action: "start", options }),
+  stop: () => __beenoQueueWeb({ action: "stop" }),
+  restart: (options = {}) => __beenoQueueWeb({ action: "restart", options }),
+  open: () => __beenoQueueWeb({ action: "open" }),
+  status: () => globalThis.__beeno_web_status,
+  routeJson: (path, payload, options = {}) =>
+    __beenoQueueWeb({ action: "route_json", path, payload, options }),
+  routeText: (path, text, options = {}) =>
+    __beenoQueueWeb({ action: "route_text", path, text, options }),
+  unroute: (path) => __beenoQueueWeb({ action: "unroute", path }),
+};
+"#,
+        "<repl-web-api>",
+    )?;
+    Ok(())
+}
+
+fn drain_repl_web_commands(engine: &mut dyn JsEngine) -> Result<Vec<JsonValue>> {
+    let out = engine.eval_script(
+        r#"
+(() => {
+  const queue = Array.isArray(globalThis.__beeno_web_commands)
+    ? globalThis.__beeno_web_commands
+    : [];
+  globalThis.__beeno_web_commands = [];
+  return JSON.stringify(queue);
+})()
+"#,
+        "<repl-web-drain>",
+    )?;
+
+    let raw = out.value.unwrap_or_else(|| "[]".to_string());
+    serde_json::from_str::<Vec<JsonValue>>(&raw).context("failed parsing REPL web command queue")
+}
+
+fn write_repl_web_status(engine: &mut dyn JsEngine, state: &WebServerState) -> Result<()> {
+    let (running, url, host, port, root_dir) = if let Some(active) = state.active.as_ref() {
+        (
+            true,
+            active.url.clone(),
+            active.config.host.clone(),
+            active.config.port,
+            active.config.root_dir.display().to_string(),
+        )
+    } else {
+        (
+            false,
+            String::new(),
+            String::new(),
+            0,
+            state
+                .last_config
+                .as_ref()
+                .map(|cfg| cfg.root_dir.display().to_string())
+                .unwrap_or_default(),
+        )
+    };
+
+    let routes: Vec<String> = state
+        .api_routes
+        .lock()
+        .map(|routes| routes.keys().cloned().collect())
+        .unwrap_or_default();
+
+    let payload = serde_json::json!({
+        "running": running,
+        "url": url,
+        "host": host,
+        "port": port,
+        "rootDir": root_dir,
+        "routes": routes
+    });
+    let payload_text =
+        serde_json::to_string(&payload).context("failed serializing REPL web status JSON")?;
+    engine.eval_script(
+        &format!("globalThis.__beeno_web_status = {payload_text};"),
+        "<repl-web-status>",
+    )?;
+    Ok(())
+}
+
+fn bool_from_value(value: Option<&JsonValue>) -> Option<bool> {
+    value.and_then(JsonValue::as_bool)
+}
+
+fn string_from_value(value: Option<&JsonValue>) -> Option<String> {
+    value.and_then(JsonValue::as_str).map(str::to_string)
+}
+
+fn route_path(raw: &str) -> Result<String> {
+    let normalized = if raw.starts_with('/') {
+        raw.to_string()
+    } else {
+        format!("/{raw}")
+    };
+    if normalized.contains("..") {
+        return Err(anyhow!("invalid route path '{}'", raw));
+    }
+    Ok(normalized)
+}
+
+fn register_json_route(
+    path: &str,
+    payload: &JsonValue,
+    status: u16,
+    state: &mut WebServerState,
+) -> Result<()> {
+    let key = route_path(path)?;
+    let body = serde_json::to_vec(payload).context("failed encoding JSON route payload")?;
+    let mut routes = state
+        .api_routes
+        .lock()
+        .map_err(|_| anyhow!("failed locking API route table"))?;
+    routes.insert(
+        key.clone(),
+        ApiRoute {
+            status,
+            content_type: "application/json; charset=utf-8".to_string(),
+            body,
+        },
+    );
+    println!("registered API route {key}");
+    Ok(())
+}
+
+fn register_text_route(
+    path: &str,
+    text: &str,
+    status: u16,
+    content_type: Option<String>,
+    state: &mut WebServerState,
+) -> Result<()> {
+    let key = route_path(path)?;
+    let mut routes = state
+        .api_routes
+        .lock()
+        .map_err(|_| anyhow!("failed locking API route table"))?;
+    routes.insert(
+        key.clone(),
+        ApiRoute {
+            status,
+            content_type: content_type.unwrap_or_else(|| "text/plain; charset=utf-8".to_string()),
+            body: text.as_bytes().to_vec(),
+        },
+    );
+    println!("registered API route {key}");
+    Ok(())
+}
+
+fn run_web_start(
+    state: &mut WebServerState,
+    config: WebServerConfig,
+    open_override: Option<bool>,
+    ask_open: bool,
+) -> Result<()> {
+    if state.active.is_some() {
+        println!("web daemon is already running. Use .web restart or .web stop.");
+        return Ok(());
+    }
+    let handle = start_web_server(&config, Arc::clone(&state.api_routes))?;
+    println!(
+        "web daemon started at {} (dir={})",
+        handle.url,
+        handle.config.root_dir.display()
+    );
+    state.last_config = Some(handle.config.clone());
+    let url = handle.url.clone();
+    state.active = Some(handle);
+
+    let should_open = match open_override {
+        Some(value) => value,
+        None if ask_open => prompt_yes_no("Open this page in your default browser now?")?,
+        None => false,
+    };
+    if should_open {
+        match open_url_in_default_browser(&url) {
+            Ok(()) => println!("opened {}", url),
+            Err(err) => eprintln!("error: failed opening browser: {err:#}"),
+        }
+    }
+    Ok(())
+}
+
+fn run_web_stop(state: &mut WebServerState) {
+    let mut active = match state.active.take() {
+        Some(active) => active,
+        None => {
+            println!("web daemon is not running.");
+            return;
+        }
+    };
+    let url = active.url.clone();
+    active.stop();
+    println!("web daemon stopped ({url})");
+}
+
+fn run_web_restart(
+    state: &mut WebServerState,
+    override_config: Option<WebServerConfig>,
+    open_after_restart: bool,
+) -> Result<()> {
+    let restart_cfg = override_config.unwrap_or_else(|| {
+        if let Some(active) = state.active.as_ref() {
+            active.config.clone()
+        } else if let Some(last) = state.last_config.as_ref() {
+            last.clone()
+        } else {
+            WebServerConfig {
+                host: DEFAULT_WEB_HOST.to_string(),
+                port: DEFAULT_WEB_PORT,
+                root_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            }
+        }
+    });
+
+    if let Some(mut active) = state.active.take() {
+        active.stop();
+    }
+
+    let handle = start_web_server(&restart_cfg, Arc::clone(&state.api_routes))?;
+    println!(
+        "web daemon restarted at {} (dir={})",
+        handle.url,
+        handle.config.root_dir.display()
+    );
+    state.last_config = Some(handle.config.clone());
+    let url = handle.url.clone();
+    state.active = Some(handle);
+    if open_after_restart {
+        open_url_in_default_browser(&url)?;
+        println!("opened {url}");
+    }
+    Ok(())
+}
+
+fn apply_repl_web_commands(commands: Vec<JsonValue>, state: &mut WebServerState) -> Result<()> {
+    for command in commands {
+        let Some(action) = command.get("action").and_then(JsonValue::as_str) else {
+            continue;
+        };
+        match action {
+            "start" => {
+                let options = command.get("options").and_then(JsonValue::as_object);
+                let host = string_from_value(options.and_then(|o| o.get("host")))
+                    .unwrap_or_else(|| DEFAULT_WEB_HOST.to_string());
+                let port = options
+                    .and_then(|o| o.get("port"))
+                    .and_then(JsonValue::as_u64)
+                    .and_then(|p| u16::try_from(p).ok())
+                    .unwrap_or(DEFAULT_WEB_PORT);
+                let root_dir = string_from_value(options.and_then(|o| o.get("dir")))
+                    .map(PathBuf::from)
+                    .unwrap_or(
+                        std::env::current_dir().context("failed getting current directory")?,
+                    );
+                let open_override = bool_from_value(options.and_then(|o| o.get("open")));
+                let ask_open = !bool_from_value(options.and_then(|o| o.get("noOpenPrompt")))
+                    .unwrap_or(false)
+                    && open_override.is_none();
+                run_web_start(
+                    state,
+                    WebServerConfig {
+                        host,
+                        port,
+                        root_dir,
+                    },
+                    open_override,
+                    ask_open,
+                )?;
+            }
+            "stop" => run_web_stop(state),
+            "restart" => {
+                let options = command.get("options").and_then(JsonValue::as_object);
+                let override_config = options.map(|o| WebServerConfig {
+                    host: string_from_value(o.get("host"))
+                        .unwrap_or_else(|| DEFAULT_WEB_HOST.to_string()),
+                    port: o
+                        .get("port")
+                        .and_then(JsonValue::as_u64)
+                        .and_then(|p| u16::try_from(p).ok())
+                        .unwrap_or(DEFAULT_WEB_PORT),
+                    root_dir: string_from_value(o.get("dir"))
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| PathBuf::from(".")),
+                });
+                let open_after_restart =
+                    bool_from_value(options.and_then(|o| o.get("open"))).unwrap_or(false);
+                run_web_restart(state, override_config, open_after_restart)?;
+            }
+            "open" => {
+                let url = state
+                    .active
+                    .as_ref()
+                    .map(|active| active.url.clone())
+                    .ok_or_else(|| anyhow!("web daemon is not running"))?;
+                open_url_in_default_browser(&url)?;
+                println!("opened {url}");
+            }
+            "route_json" => {
+                let Some(path) = command.get("path").and_then(JsonValue::as_str) else {
+                    continue;
+                };
+                let payload = command.get("payload").cloned().unwrap_or(JsonValue::Null);
+                let status = command
+                    .get("options")
+                    .and_then(JsonValue::as_object)
+                    .and_then(|o| o.get("status"))
+                    .and_then(JsonValue::as_u64)
+                    .and_then(|v| u16::try_from(v).ok())
+                    .unwrap_or(200);
+                register_json_route(path, &payload, status, state)?;
+            }
+            "route_text" => {
+                let Some(path) = command.get("path").and_then(JsonValue::as_str) else {
+                    continue;
+                };
+                let text = command
+                    .get("text")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or_default();
+                let options = command.get("options").and_then(JsonValue::as_object);
+                let status = options
+                    .and_then(|o| o.get("status"))
+                    .and_then(JsonValue::as_u64)
+                    .and_then(|v| u16::try_from(v).ok())
+                    .unwrap_or(200);
+                let content_type = string_from_value(options.and_then(|o| o.get("contentType")));
+                register_text_route(path, text, status, content_type, state)?;
+            }
+            "unroute" => {
+                let Some(path) = command.get("path").and_then(JsonValue::as_str) else {
+                    continue;
+                };
+                let key = route_path(path)?;
+                if let Ok(mut routes) = state.api_routes.lock() {
+                    routes.remove(&key);
+                }
+                println!("removed API route {key}");
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 fn print_web_usage() {
@@ -667,90 +1096,36 @@ fn handle_web_command(input: &str, state: &mut WebServerState) -> Result<()> {
     match action {
         "help" => print_web_usage(),
         "status" => {
+            let route_count = state
+                .api_routes
+                .lock()
+                .map(|routes| routes.len())
+                .unwrap_or_default();
             if let Some(active) = state.active.as_ref() {
                 println!(
-                    "web daemon: running at {} (dir={})",
+                    "web daemon: running at {} (dir={}, routes={})",
                     active.url,
-                    active.config.root_dir.display()
+                    active.config.root_dir.display(),
+                    route_count
                 );
             } else if let Some(last) = state.last_config.as_ref() {
                 println!(
-                    "web daemon: stopped (last config host={} port={} dir={})",
+                    "web daemon: stopped (last config host={} port={} dir={}, routes={})",
                     last.host,
                     last.port,
-                    last.root_dir.display()
+                    last.root_dir.display(),
+                    route_count
                 );
             } else {
-                println!("web daemon: stopped");
+                println!("web daemon: stopped (routes={route_count})");
             }
         }
         "start" => {
-            if state.active.is_some() {
-                println!("web daemon is already running. Use .web restart or .web stop.");
-                return Ok(());
-            }
             let (config, open_override, ask_open) = parse_web_start(&parts[2..])?;
-            let handle = start_web_server(&config)?;
-            println!(
-                "web daemon started at {} (dir={})",
-                handle.url,
-                handle.config.root_dir.display()
-            );
-            state.last_config = Some(handle.config.clone());
-            let url = handle.url.clone();
-            state.active = Some(handle);
-
-            let should_open = match open_override {
-                Some(value) => value,
-                None if ask_open => prompt_yes_no("Open this page in your default browser now?")?,
-                None => false,
-            };
-            if should_open {
-                match open_url_in_default_browser(&url) {
-                    Ok(()) => println!("opened {}", url),
-                    Err(err) => eprintln!("error: failed opening browser: {err:#}"),
-                }
-            }
+            run_web_start(state, config, open_override, ask_open)?;
         }
-        "stop" => {
-            let mut active = match state.active.take() {
-                Some(active) => active,
-                None => {
-                    println!("web daemon is not running.");
-                    return Ok(());
-                }
-            };
-            let url = active.url.clone();
-            active.stop();
-            println!("web daemon stopped ({url})");
-        }
-        "restart" => {
-            let restart_cfg = if let Some(active) = state.active.as_ref() {
-                active.config.clone()
-            } else if let Some(last) = state.last_config.as_ref() {
-                last.clone()
-            } else {
-                WebServerConfig {
-                    host: DEFAULT_WEB_HOST.to_string(),
-                    port: DEFAULT_WEB_PORT,
-                    root_dir: std::env::current_dir()
-                        .context("failed getting current directory")?,
-                }
-            };
-
-            if let Some(mut active) = state.active.take() {
-                active.stop();
-            }
-
-            let handle = start_web_server(&restart_cfg)?;
-            println!(
-                "web daemon restarted at {} (dir={})",
-                handle.url,
-                handle.config.root_dir.display()
-            );
-            state.last_config = Some(handle.config.clone());
-            state.active = Some(handle);
-        }
+        "stop" => run_web_stop(state),
+        "restart" => run_web_restart(state, None, false)?,
         "open" => {
             let url = state
                 .active
@@ -1146,6 +1521,7 @@ fn repl_command(
     let compiler = build_compiler(&resolved)?;
 
     let mut engine = build_engine()?;
+    install_repl_web_javascript_api(engine.as_mut())?;
     let baseline_globals = read_global_names(engine.as_mut())?;
     let mut known_bindings: HashSet<String> = HashSet::new();
     let mut statement_history: VecDeque<String> = VecDeque::new();
@@ -1159,6 +1535,7 @@ fn repl_command(
     let provider_selection = provider_to_selection(resolved.provider);
 
     println!("Beeno REPL (M2). Type .help for commands, .exit to quit.");
+    write_repl_web_status(engine.as_mut(), &web_server)?;
     loop {
         line.clear();
         print!("beeno> ");
@@ -1180,11 +1557,23 @@ fn repl_command(
             println!("  .help - show this help");
             println!("  .exit - quit");
             print_web_usage();
+            println!("JavaScript web APIs:");
+            println!("  beeno.web.start({{ dir, port, host, open, noOpenPrompt }})");
+            println!("  beeno.web.stop()");
+            println!("  beeno.web.restart({{ dir, port, host, open }})");
+            println!("  beeno.web.open()");
+            println!("  beeno.web.status()");
+            println!("  beeno.web.routeJson(path, payload, {{ status }})");
+            println!("  beeno.web.routeText(path, text, {{ status, contentType }})");
+            println!("  beeno.web.unroute(path)");
             continue;
         }
         if trimmed.starts_with(".web") {
             if let Err(err) = handle_web_command(trimmed, &mut web_server) {
                 eprintln!("error: {err:#}");
+            }
+            if let Err(err) = write_repl_web_status(engine.as_mut(), &web_server) {
+                eprintln!("error: failed refreshing JS web status: {err:#}");
             }
             continue;
         }
@@ -1245,6 +1634,18 @@ fn repl_command(
                     }
                     Err(err) => eprintln!("error: {err:#}"),
                 }
+
+                match drain_repl_web_commands(engine.as_mut()) {
+                    Ok(commands) => {
+                        if let Err(err) = apply_repl_web_commands(commands, &mut web_server) {
+                            eprintln!("error: {err:#}");
+                        }
+                    }
+                    Err(err) => eprintln!("error: failed reading JS web command queue: {err:#}"),
+                }
+                if let Err(err) = write_repl_web_status(engine.as_mut(), &web_server) {
+                    eprintln!("error: failed refreshing JS web status: {err:#}");
+                }
             }
             Err(err) => eprintln!("error: {err:#}"),
         }
@@ -1258,7 +1659,7 @@ mod tests {
     use super::{
         DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, REPL_HISTORY_LIMIT, backup_path_for,
         build_repl_scope_context, build_self_heal_request, is_self_heal_supported_source,
-        parse_web_start, push_bounded,
+        parse_web_start, push_bounded, route_path,
     };
     use std::collections::{HashSet, VecDeque};
     use std::path::Path;
@@ -1304,6 +1705,18 @@ mod tests {
         assert_eq!(config.root_dir.to_string_lossy(), "web");
         assert_eq!(open_override, Some(true));
         assert!(!ask_open);
+    }
+
+    #[test]
+    fn route_path_normalizes_missing_leading_slash() {
+        let normalized = route_path("api/health").expect("path");
+        assert_eq!(normalized, "/api/health");
+    }
+
+    #[test]
+    fn route_path_rejects_parent_segments() {
+        let err = route_path("../escape").expect_err("should reject");
+        assert!(err.to_string().contains("invalid route path"));
     }
 
     #[test]

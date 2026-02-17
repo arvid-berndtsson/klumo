@@ -65,12 +65,6 @@ Optional environment variables:
 If no input file is provided (`beeno` or `beeno run`), Beeno starts REPL automatically.
 REPL input is treated as pseudocode and sent through the LLM compile path before execution.
 
-REPL daemon controls:
-- `.web start [--dir <path>] [--port <n>] [--host <ip>] [--open|--no-open|--no-open-prompt]`
-- `.web status`, `.web open`, `.web stop`, `.web restart`
-- The web daemon serves files directly from disk, so UI hot fixes are live after refresh.
-- By default, `.web start` asks whether to open the hosted page in your default browser.
-
 ## Short Dev Commands
 
 Cargo aliases are configured in `.cargo/config.toml`:
@@ -175,6 +169,29 @@ Controls:
 - `--no-progress` to suppress status lines.
 
 When `--verbose` is used and the run goes through LLM compilation, Beeno prints the generated JavaScript before execution.
+
+## REPL Web APIs
+
+Inside REPL, Beeno now exposes a web daemon and route controls both as dot-commands and JavaScript APIs.
+
+Dot-commands:
+- `.web start [--dir <path>] [--port <n>] [--host <ip>] [--open|--no-open|--no-open-prompt]`
+- `.web status`, `.web open`, `.web stop`, `.web restart`
+
+JavaScript APIs:
+- `beeno.web.start({ dir, port, host, open, noOpenPrompt })`
+- `beeno.web.stop()`
+- `beeno.web.restart({ dir, port, host, open })`
+- `beeno.web.open()`
+- `beeno.web.status()`
+- `beeno.web.routeJson(path, payload, { status })`
+- `beeno.web.routeText(path, text, { status, contentType })`
+- `beeno.web.unroute(path)`
+
+Notes:
+- Static files are served directly from disk, so hot fixes are visible after browser refresh.
+- Registered API routes are available on the same daemon, enabling browser UI + local API prototyping in the same REPL session.
+- By default, start asks whether to open the page in the default browser unless `open`/`noOpenPrompt` override it.
 
 ## Tests
 
