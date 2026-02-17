@@ -34,6 +34,23 @@ fn run_without_file_enters_repl() {
 }
 
 #[test]
+fn repl_accepts_runtime_flags() {
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .args([
+            "repl",
+            "--print-js",
+            "--no-cache",
+            "--provider",
+            "openai",
+            "--no-progress",
+        ])
+        .write_stdin(".exit\n")
+        .assert()
+        .success()
+        .stdout(contains("Beeno REPL"));
+}
+
+#[test]
 fn run_js_file_works_without_llm() {
     let dir = tempdir().expect("tempdir should work");
     let path = dir.path().join("hello.js");

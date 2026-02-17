@@ -72,6 +72,22 @@ enum Commands {
     Repl {
         #[arg(long)]
         config: Option<PathBuf>,
+        #[arg(long)]
+        lang: Option<String>,
+        #[arg(long)]
+        print_js: bool,
+        #[arg(long)]
+        no_cache: bool,
+        #[arg(long)]
+        no_progress: bool,
+        #[arg(long)]
+        verbose: bool,
+        #[arg(long, value_enum)]
+        provider: Option<ProviderArg>,
+        #[arg(long)]
+        ollama_url: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
     },
 }
 
@@ -261,8 +277,29 @@ fn eval_command(code: String) -> Result<()> {
     Ok(())
 }
 
-fn repl_command(config: Option<PathBuf>) -> Result<()> {
-    let cli_overrides = CliRunOverrides::default();
+#[allow(clippy::too_many_arguments)]
+fn repl_command(
+    config: Option<PathBuf>,
+    lang: Option<String>,
+    print_js: bool,
+    no_cache: bool,
+    no_progress: bool,
+    verbose: bool,
+    provider: Option<ProviderArg>,
+    ollama_url: Option<String>,
+    model: Option<String>,
+) -> Result<()> {
+    let cli_overrides = CliRunOverrides {
+        provider: provider.map(ProviderArg::as_setting),
+        ollama_url,
+        model,
+        lang,
+        force_llm: None,
+        print_js: print_js.then_some(true),
+        no_cache: no_cache.then_some(true),
+        verbose: verbose.then_some(true),
+        no_progress: no_progress.then_some(true),
+    };
     let resolved = resolve_config(config, &cli_overrides)?;
     let compiler = build_compiler(&resolved)?;
 
@@ -302,7 +339,7 @@ fn repl_command(config: Option<PathBuf>) -> Result<()> {
             language_hint: Some(repl_lang.clone()),
             force_llm: true,
             provider_selection,
-            model_override: None,
+            model_override: cli_overrides.model.clone(),
             no_cache: resolved.no_cache,
         });
 
@@ -368,11 +405,41 @@ fn main() -> Result<()> {
                     model,
                 )
             } else {
-                repl_command(config)
+                repl_command(
+                    config,
+                    lang,
+                    print_js,
+                    no_cache,
+                    no_progress,
+                    verbose,
+                    provider,
+                    ollama_url,
+                    model,
+                )
             }
         }
         Some(Commands::Eval { code }) => eval_command(code),
-        Some(Commands::Repl { config }) => repl_command(config),
-        None => repl_command(None),
+        Some(Commands::Repl {
+            config,
+            lang,
+            print_js,
+            no_cache,
+            no_progress,
+            verbose,
+            provider,
+            ollama_url,
+            model,
+        }) => repl_command(
+            config,
+            lang,
+            print_js,
+            no_cache,
+            no_progress,
+            verbose,
+            provider,
+            ollama_url,
+            model,
+        ),
+        None => repl_command(None, None, false, false, false, false, None, None, None),
     }
 }
