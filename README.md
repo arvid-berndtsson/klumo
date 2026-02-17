@@ -65,6 +65,12 @@ Optional environment variables:
 If no input file is provided (`beeno` or `beeno run`), Beeno starts REPL automatically.
 REPL input is treated as pseudocode and sent through the LLM compile path before execution.
 
+REPL daemon controls:
+- `.web start [--dir <path>] [--port <n>] [--host <ip>] [--open|--no-open|--no-open-prompt]`
+- `.web status`, `.web open`, `.web stop`, `.web restart`
+- The web daemon serves files directly from disk, so UI hot fixes are live after refresh.
+- By default, `.web start` asks whether to open the hosted page in your default browser.
+
 ## Short Dev Commands
 
 Cargo aliases are configured in `.cargo/config.toml`:

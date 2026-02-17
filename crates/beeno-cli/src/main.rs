@@ -15,10 +15,56 @@ use beeno_llm_openai::OpenAiCompatibleClient;
 use clap::{Parser, Subcommand, ValueEnum};
 use std::collections::{HashSet, VecDeque};
 use std::fs;
-use std::io::{self, Write};
+use std::fs::File;
+use std::io::{self, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 const REPL_HISTORY_LIMIT: usize = 20;
+const DEFAULT_WEB_HOST: &str = "127.0.0.1";
+const DEFAULT_WEB_PORT: u16 = 4173;
+
+#[derive(Debug, Clone)]
+struct WebServerConfig {
+    host: String,
+    port: u16,
+    root_dir: PathBuf,
+}
+
+#[derive(Debug)]
+struct WebServerHandle {
+    config: WebServerConfig,
+    url: String,
+    stop_tx: mpsc::Sender<()>,
+    join_handle: Option<thread::JoinHandle<()>>,
+}
+
+impl WebServerHandle {
+    fn stop(&mut self) {
+        let _ = self.stop_tx.send(());
+        if let Some(handle) = self.join_handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct WebServerState {
+    active: Option<WebServerHandle>,
+    last_config: Option<WebServerConfig>,
+}
+
+impl Drop for WebServerState {
+    fn drop(&mut self) {
+        if let Some(active) = self.active.as_mut() {
+            active.stop();
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ProviderArg {
@@ -226,6 +272,7 @@ fn build_repl_scope_context(
     bindings: &HashSet<String>,
     statement_history: &VecDeque<String>,
     js_history: &VecDeque<String>,
+    web_server_context: Option<&str>,
 ) -> Option<String> {
     let mut sections = Vec::new();
 
@@ -244,6 +291,9 @@ fn build_repl_scope_context(
             js_snippets
         ));
     }
+    if let Some(web_context) = web_server_context {
+        sections.push(web_context.to_string());
+    }
 
     if sections.is_empty() {
         None
@@ -257,6 +307,465 @@ fn push_bounded(history: &mut VecDeque<String>, item: String, cap: usize) {
     while history.len() > cap {
         history.pop_front();
     }
+}
+
+fn guess_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" | "cjs" => "application/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
+        "txt" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+fn write_http_response(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &[u8],
+    head_only: bool,
+) -> Result<()> {
+    let mut headers = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    if !head_only {
+        headers.extend_from_slice(body);
+    }
+    stream.write_all(&headers)?;
+    Ok(())
+}
+
+fn decode_percent_path(path: &str) -> Option<String> {
+    let mut out = Vec::with_capacity(path.len());
+    let bytes = path.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return None;
+            }
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok()?;
+            let value = u8::from_str_radix(hex, 16).ok()?;
+            out.push(value);
+            i += 3;
+            continue;
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(out).ok()
+}
+
+fn resolve_request_path(root: &Path, raw_path: &str) -> Option<PathBuf> {
+    let without_query = raw_path.split('?').next().unwrap_or("/");
+    let decoded = decode_percent_path(without_query)?;
+    let normalized = decoded.trim_start_matches('/');
+    let mut candidate = root.to_path_buf();
+    for segment in normalized.split('/') {
+        if segment.is_empty() || segment == "." {
+            continue;
+        }
+        if segment == ".." {
+            return None;
+        }
+        candidate.push(segment);
+    }
+    Some(candidate)
+}
+
+fn handle_web_connection(mut stream: TcpStream, root: &Path) -> Result<()> {
+    let mut buffer = [0_u8; 16_384];
+    let read = stream.read(&mut buffer)?;
+    if read == 0 {
+        return Ok(());
+    }
+
+    let request = String::from_utf8_lossy(&buffer[..read]);
+    let mut lines = request.lines();
+    let first_line = match lines.next() {
+        Some(line) => line,
+        None => return Ok(()),
+    };
+    let mut parts = first_line.split_whitespace();
+    let method = parts.next().unwrap_or_default();
+    let raw_path = parts.next().unwrap_or("/");
+    let head_only = method.eq_ignore_ascii_case("HEAD");
+
+    if !method.eq_ignore_ascii_case("GET") && !head_only {
+        return write_http_response(
+            &mut stream,
+            "405 Method Not Allowed",
+            "text/plain; charset=utf-8",
+            b"Method Not Allowed",
+            head_only,
+        );
+    }
+
+    let mut target = match resolve_request_path(root, raw_path) {
+        Some(path) => path,
+        None => {
+            return write_http_response(
+                &mut stream,
+                "400 Bad Request",
+                "text/plain; charset=utf-8",
+                b"Bad Request",
+                head_only,
+            );
+        }
+    };
+
+    if target.is_dir() {
+        target.push("index.html");
+    }
+
+    if !target.exists()
+        && !Path::new(raw_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .contains('.')
+    {
+        let spa = root.join("index.html");
+        if spa.exists() {
+            target = spa;
+        }
+    }
+
+    let mut file = match File::open(&target) {
+        Ok(file) => file,
+        Err(_) => {
+            return write_http_response(
+                &mut stream,
+                "404 Not Found",
+                "text/plain; charset=utf-8",
+                b"Not Found",
+                head_only,
+            );
+        }
+    };
+
+    let mut body = Vec::new();
+    file.read_to_end(&mut body)?;
+    write_http_response(
+        &mut stream,
+        "200 OK",
+        guess_content_type(&target),
+        &body,
+        head_only,
+    )
+}
+
+fn start_web_server(config: &WebServerConfig) -> Result<WebServerHandle> {
+    let root_dir = config.root_dir.canonicalize().with_context(|| {
+        format!(
+            "failed resolving web root directory {}",
+            config.root_dir.display()
+        )
+    })?;
+
+    if !root_dir.is_dir() {
+        return Err(anyhow!(
+            "web root '{}' is not a directory",
+            root_dir.display()
+        ));
+    }
+
+    let listener = TcpListener::bind((config.host.as_str(), config.port)).with_context(|| {
+        format!(
+            "failed binding web server on {}:{}",
+            config.host, config.port
+        )
+    })?;
+    listener
+        .set_nonblocking(true)
+        .context("failed setting listener nonblocking mode")?;
+
+    let actual_port = listener
+        .local_addr()
+        .context("failed reading listener local address")?
+        .port();
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let root_for_thread = root_dir.clone();
+
+    let join_handle = thread::spawn(move || {
+        loop {
+            if stop_rx.try_recv().is_ok() {
+                break;
+            }
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    if let Err(err) = handle_web_connection(stream, &root_for_thread) {
+                        eprintln!("error: web daemon request failed: {err:#}");
+                    }
+                }
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(40));
+                }
+                Err(err) => {
+                    eprintln!("error: web daemon listener failed: {err}");
+                    thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+    });
+
+    let runtime_cfg = WebServerConfig {
+        host: config.host.clone(),
+        port: actual_port,
+        root_dir,
+    };
+    let url = format!("http://{}:{}/", runtime_cfg.host, runtime_cfg.port);
+
+    Ok(WebServerHandle {
+        config: runtime_cfg,
+        url,
+        stop_tx,
+        join_handle: Some(join_handle),
+    })
+}
+
+fn open_url_in_default_browser(url: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    let status = Command::new("open").arg(url).status();
+    #[cfg(target_os = "linux")]
+    let status = Command::new("xdg-open").arg(url).status();
+    #[cfg(target_os = "windows")]
+    let status = Command::new("cmd").args(["/C", "start", "", url]).status();
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let status: io::Result<std::process::ExitStatus> = Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "unsupported platform for browser launch",
+    ));
+
+    let status = status.with_context(|| format!("failed launching browser for {url}"))?;
+    if !status.success() {
+        return Err(anyhow!("browser command exited with status {}", status));
+    }
+    Ok(())
+}
+
+fn prompt_yes_no(prompt: &str) -> Result<bool> {
+    print!("{prompt} [y/N] ");
+    io::stdout().flush().context("failed flushing stdout")?;
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .context("failed reading confirmation input")?;
+    let normalized = answer.trim().to_ascii_lowercase();
+    Ok(matches!(normalized.as_str(), "y" | "yes"))
+}
+
+fn web_server_scope_text(state: &WebServerState) -> String {
+    if let Some(active) = state.active.as_ref() {
+        return format!(
+            "Web daemon is running at {} and serving files from {}. File changes are reflected on refresh because content is read from disk per request. REPL control commands: .web status | .web open | .web stop | .web restart.",
+            active.url,
+            active.config.root_dir.display()
+        );
+    }
+
+    "Web daemon is not running. REPL control commands: .web start --dir <path> [--port <n>] [--host <ip>] [--open|--no-open|--no-open-prompt], .web status, .web restart.".to_string()
+}
+
+fn print_web_usage() {
+    println!("web daemon commands:");
+    println!(
+        "  .web start [--dir <path>] [--port <n>] [--host <ip>] [--open|--no-open|--no-open-prompt]"
+    );
+    println!("  .web stop");
+    println!("  .web status");
+    println!("  .web restart");
+    println!("  .web open");
+}
+
+fn parse_web_start(tokens: &[&str]) -> Result<(WebServerConfig, Option<bool>, bool)> {
+    let mut host = DEFAULT_WEB_HOST.to_string();
+    let mut port = DEFAULT_WEB_PORT;
+    let mut root_dir = std::env::current_dir().context("failed getting current directory")?;
+    let mut open_override: Option<bool> = None;
+    let mut ask_open = true;
+
+    let mut i = 0;
+    while i < tokens.len() {
+        match tokens[i] {
+            "--dir" => {
+                let value = tokens
+                    .get(i + 1)
+                    .ok_or_else(|| anyhow!("missing value for --dir"))?;
+                root_dir = PathBuf::from(value);
+                i += 2;
+            }
+            "--port" => {
+                let value = tokens
+                    .get(i + 1)
+                    .ok_or_else(|| anyhow!("missing value for --port"))?;
+                port = value
+                    .parse::<u16>()
+                    .with_context(|| format!("invalid --port value '{value}'"))?;
+                i += 2;
+            }
+            "--host" => {
+                let value = tokens
+                    .get(i + 1)
+                    .ok_or_else(|| anyhow!("missing value for --host"))?;
+                host = (*value).to_string();
+                i += 2;
+            }
+            "--open" => {
+                open_override = Some(true);
+                ask_open = false;
+                i += 1;
+            }
+            "--no-open" => {
+                open_override = Some(false);
+                ask_open = false;
+                i += 1;
+            }
+            "--no-open-prompt" => {
+                ask_open = false;
+                i += 1;
+            }
+            unknown => return Err(anyhow!("unknown .web start flag '{unknown}'")),
+        }
+    }
+
+    Ok((
+        WebServerConfig {
+            host,
+            port,
+            root_dir,
+        },
+        open_override,
+        ask_open,
+    ))
+}
+
+fn handle_web_command(input: &str, state: &mut WebServerState) -> Result<()> {
+    let parts: Vec<&str> = input.split_whitespace().collect();
+    if parts.is_empty() || parts[0] != ".web" {
+        return Ok(());
+    }
+
+    let action = parts.get(1).copied().unwrap_or("status");
+    match action {
+        "help" => print_web_usage(),
+        "status" => {
+            if let Some(active) = state.active.as_ref() {
+                println!(
+                    "web daemon: running at {} (dir={})",
+                    active.url,
+                    active.config.root_dir.display()
+                );
+            } else if let Some(last) = state.last_config.as_ref() {
+                println!(
+                    "web daemon: stopped (last config host={} port={} dir={})",
+                    last.host,
+                    last.port,
+                    last.root_dir.display()
+                );
+            } else {
+                println!("web daemon: stopped");
+            }
+        }
+        "start" => {
+            if state.active.is_some() {
+                println!("web daemon is already running. Use .web restart or .web stop.");
+                return Ok(());
+            }
+            let (config, open_override, ask_open) = parse_web_start(&parts[2..])?;
+            let handle = start_web_server(&config)?;
+            println!(
+                "web daemon started at {} (dir={})",
+                handle.url,
+                handle.config.root_dir.display()
+            );
+            state.last_config = Some(handle.config.clone());
+            let url = handle.url.clone();
+            state.active = Some(handle);
+
+            let should_open = match open_override {
+                Some(value) => value,
+                None if ask_open => prompt_yes_no("Open this page in your default browser now?")?,
+                None => false,
+            };
+            if should_open {
+                match open_url_in_default_browser(&url) {
+                    Ok(()) => println!("opened {}", url),
+                    Err(err) => eprintln!("error: failed opening browser: {err:#}"),
+                }
+            }
+        }
+        "stop" => {
+            let mut active = match state.active.take() {
+                Some(active) => active,
+                None => {
+                    println!("web daemon is not running.");
+                    return Ok(());
+                }
+            };
+            let url = active.url.clone();
+            active.stop();
+            println!("web daemon stopped ({url})");
+        }
+        "restart" => {
+            let restart_cfg = if let Some(active) = state.active.as_ref() {
+                active.config.clone()
+            } else if let Some(last) = state.last_config.as_ref() {
+                last.clone()
+            } else {
+                WebServerConfig {
+                    host: DEFAULT_WEB_HOST.to_string(),
+                    port: DEFAULT_WEB_PORT,
+                    root_dir: std::env::current_dir()
+                        .context("failed getting current directory")?,
+                }
+            };
+
+            if let Some(mut active) = state.active.take() {
+                active.stop();
+            }
+
+            let handle = start_web_server(&restart_cfg)?;
+            println!(
+                "web daemon restarted at {} (dir={})",
+                handle.url,
+                handle.config.root_dir.display()
+            );
+            state.last_config = Some(handle.config.clone());
+            state.active = Some(handle);
+        }
+        "open" => {
+            let url = state
+                .active
+                .as_ref()
+                .map(|active| active.url.clone())
+                .ok_or_else(|| anyhow!("web daemon is not running"))?;
+            open_url_in_default_browser(&url)?;
+            println!("opened {url}");
+        }
+        _ => {
+            print_web_usage();
+            return Err(anyhow!("unknown .web action '{action}'"));
+        }
+    }
+    Ok(())
 }
 
 fn provider_to_selection(provider: ProviderSetting) -> ProviderSelection {
@@ -641,6 +1150,7 @@ fn repl_command(
     let mut known_bindings: HashSet<String> = HashSet::new();
     let mut statement_history: VecDeque<String> = VecDeque::new();
     let mut js_history: VecDeque<String> = VecDeque::new();
+    let mut web_server = WebServerState::default();
     let mut line = String::new();
     let repl_lang = resolved
         .lang
@@ -648,7 +1158,7 @@ fn repl_command(
         .unwrap_or_else(|| "pseudocode".to_string());
     let provider_selection = provider_to_selection(resolved.provider);
 
-    println!("Beeno REPL (M2). Type .exit to quit.");
+    println!("Beeno REPL (M2). Type .help for commands, .exit to quit.");
     loop {
         line.clear();
         print!("beeno> ");
@@ -665,6 +1175,19 @@ fn repl_command(
         if trimmed.is_empty() {
             continue;
         }
+        if trimmed == ".help" {
+            println!("REPL commands:");
+            println!("  .help - show this help");
+            println!("  .exit - quit");
+            print_web_usage();
+            continue;
+        }
+        if trimmed.starts_with(".web") {
+            if let Err(err) = handle_web_command(trimmed, &mut web_server) {
+                eprintln!("error: {err:#}");
+            }
+            continue;
+        }
         if trimmed == ".exit" {
             break;
         }
@@ -678,6 +1201,7 @@ fn repl_command(
                 &known_bindings,
                 &statement_history,
                 &js_history,
+                Some(&web_server_scope_text(&web_server)),
             ),
             force_llm: true,
             provider_selection,
@@ -732,8 +1256,9 @@ fn repl_command(
 #[cfg(test)]
 mod tests {
     use super::{
-        REPL_HISTORY_LIMIT, backup_path_for, build_repl_scope_context, build_self_heal_request,
-        is_self_heal_supported_source, push_bounded,
+        DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, REPL_HISTORY_LIMIT, backup_path_for,
+        build_repl_scope_context, build_self_heal_request, is_self_heal_supported_source,
+        parse_web_start, push_bounded,
     };
     use std::collections::{HashSet, VecDeque};
     use std::path::Path;
@@ -753,10 +1278,32 @@ mod tests {
             "console.log(hello);".to_string(),
         ]);
 
-        let context = build_repl_scope_context(&bindings, &statements, &js).expect("context");
+        let context = build_repl_scope_context(&bindings, &statements, &js, None).expect("context");
         assert!(context.contains("Bindings currently defined"));
         assert!(context.contains("Previously run REPL statements"));
         assert!(context.contains("Previously generated JavaScript snippets"));
+    }
+
+    #[test]
+    fn web_start_parser_applies_defaults() {
+        let (config, open_override, ask_open) = parse_web_start(&[]).expect("parse");
+        assert_eq!(config.host, DEFAULT_WEB_HOST);
+        assert_eq!(config.port, DEFAULT_WEB_PORT);
+        assert!(open_override.is_none());
+        assert!(ask_open);
+    }
+
+    #[test]
+    fn web_start_parser_supports_flags() {
+        let (config, open_override, ask_open) = parse_web_start(&[
+            "--host", "0.0.0.0", "--port", "8080", "--dir", "web", "--open",
+        ])
+        .expect("parse");
+        assert_eq!(config.host, "0.0.0.0");
+        assert_eq!(config.port, 8080);
+        assert_eq!(config.root_dir.to_string_lossy(), "web");
+        assert_eq!(open_override, Some(true));
+        assert!(!ask_open);
     }
 
     #[test]
