@@ -1,65 +1,65 @@
-# Beeno Runtime Architecture
+# Beeno Runtime Architecture (M1)
 
 ## Goal
 
-Build a standalone runtime that can execute JavaScript and translated source inputs without Node.js.
+Build a standalone runtime that executes JavaScript directly and compiles non-JS input through an LLM pipeline without depending on Node.js runtime execution.
 
-## High-Level Pipeline
+## Implemented M1 Components
 
-1. `Input Loader`: reads file/stdin/URL sources.
-2. `Planner`: determines source type and compile strategy.
-3. `LLM Compiler`: translates non-JS inputs into JavaScript modules.
-4. `Module Graph Builder`: resolves imports and caches compile artifacts.
-5. `Runtime Core`: executes module graph in embedded engine.
-6. `Host APIs`: Beeno-owned implementations (`fs`, `net`, `crypto`, timers).
+- `beeno-cli`: command surface (`run`, `eval`, `repl`)
+- `beeno-core`: orchestration (`read -> compile -> execute`)
+- `beeno-engine`: `JsEngine` trait + `BoaEngine` implementation
+- `beeno-compiler`: source-kind routing + compile cache
+- `beeno-llm`: provider contracts, output normalization, provider router
+- `beeno-llm-ollama`: dedicated Ollama client with reachability preflight
+- `beeno-llm-openai`: OpenAI-compatible HTTP client
 
-## Runtime Composition
+## Runtime Flow (`beeno run`)
 
-- `beeno-cli` (Rust binary)
-  - Commands: `run`, `repl`, `cache`, `fmt`, `check`
-- `beeno-core`
-  - Module loader
-  - Event loop
-  - Permission gates
-  - Snapshot/bootstrap logic
-- `beeno-llm`
-  - Provider adapters
-  - Prompt contracts
-  - Deterministic compile cache
-- `beeno-compat-node`
-  - Subset `node:` modules mapped to Beeno APIs
+1. Read file source.
+2. Resolve source kind from `--lang` or file extension.
+3. If JavaScript and not `--force-llm`, passthrough compile.
+4. Otherwise compile via LLM provider routing.
+5. Provider mode `auto`:
+   - use Ollama first if reachable,
+   - fallback to OpenAI-compatible provider on failure.
+6. Cache compiled JS under provider/model-aware key.
+7. Execute generated JS through `JsEngine`.
 
-## Engine Choice
+## Public Internal Interfaces
 
-Primary option: `deno_core` (embedded V8)
+- `JsEngine` (`beeno-engine`)
+- `Compiler` and `CompileCache` (`beeno-compiler`)
+- `LlmClient` and `TranslationService` (`beeno-llm`)
+- `ProviderRouter` (`beeno-llm`)
 
-- Pros: mature ops model, high compatibility, proven runtime shape.
-- Cons: larger footprint.
+## Compile Cache
 
-Alternative option: QuickJS
+- Location: `$HOME/.beeno/cache/compile`
+- Key fields:
+  - source content hash
+  - source id
+  - language hint
+  - provider
+  - model
+  - prompt version (`m1-v1`)
 
-- Pros: lightweight, easier embedding.
-- Cons: lower compatibility/perf for some workloads.
+## Testing Strategy
 
-## Security Model
+Required CI tier (offline, deterministic):
 
-- Default deny for `fs`, `net`, env access.
-- Explicit flags: `--allow-read`, `--allow-write`, `--allow-net`, `--allow-env`.
-- LLM compiler sandbox:
-  - No direct host execution.
-  - Strict output contract: JS only.
-  - Optional policy scan before runtime execution.
+- Unit tests for engine behavior, compiler routing, provider routing, normalization, cache behavior.
+- Integration-style tests for run flow and failure behavior.
+- CLI tests for JS execution, eval output, and missing API key failure path.
 
-## Compatibility Strategy
+Optional/scheduled live tier:
 
-1. First-class Beeno APIs.
-2. Web-standard APIs where possible.
-3. Node compatibility shims for migration (`node:fs`, `node:path`, `node:events` first).
+- Ignored tests in provider crates gated by `BEENO_RUN_LIVE_TESTS=1`.
+- Ollama and OpenAI-compatible live translation checks.
 
-## Milestones
+## Deferred Work
 
-1. `M0`: CLI skeleton + embedded engine hello world.
-2. `M1`: JS module execution + file loader + permissions.
-3. `M2`: LLM compile step for non-JS inputs.
-4. `M3`: cache, diagnostics, source maps.
-5. `M4`: Node compatibility subset + npm interop plan.
+- Node compatibility shims (`node:*`).
+- Permission flags and host API capability model.
+- Module graph/import execution.
+- Advanced diagnostics/source maps.

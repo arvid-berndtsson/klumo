@@ -1,0 +1,31 @@
+[workspace]
+members = [
+  "crates/beeno-cli",
+  "crates/beeno-core",
+  "crates/beeno-engine",
+  "crates/beeno-compiler",
+  "crates/beeno-llm",
+  "crates/beeno-llm-ollama",
+  "crates/beeno-llm-openai"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1.0"
+assert_cmd = "2.1"
+boa_engine = "0.20"
+clap = { version = "4.5", features = ["derive"] }
+dirs = "6.0"
+insta = "1.43"
+predicates = "3.1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+tempfile = "3.23"
+thiserror = "2.0"

@@ -1,0 +1,32 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Cargo local config (optional machine-specific)
+.cargo/
+
+# Node prototype
+/node_modules/
+/npm-debug.log*
+/yarn-error.log*
+/pnpm-debug.log*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Coverage / test artifacts
+/coverage/
+*.profraw
+*.profdata
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

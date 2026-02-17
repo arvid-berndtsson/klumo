@@ -2,45 +2,93 @@
 
 **Slogan:** "Beeno, run node smarter, but with LLM benefits"
 
-Beeno is a standalone JavaScript runtime with an LLM-native compile pipeline.
+Beeno is a standalone Rust runtime direction with LLM-assisted source compilation.
 
-## Core Direction
+## Status
 
-Beeno must not depend on Node.js to run user programs.
+M1 foundation is implemented with engine abstraction, compiler abstraction, provider routing, and tests.
 
-Runtime stack target:
+Current workspace crates:
 
-- Embedded JS engine (V8/QuickJS) owned by Beeno.
-- Beeno-native standard library and runtime APIs.
-- Node compatibility layer implemented in Beeno (not delegated to Node).
-- LLM translation pipeline from arbitrary input to executable JavaScript.
+- `/Users/arvid/Private/beeno/crates/beeno-cli` (binary `beeno`)
+- `/Users/arvid/Private/beeno/crates/beeno-core`
+- `/Users/arvid/Private/beeno/crates/beeno-engine`
+- `/Users/arvid/Private/beeno/crates/beeno-compiler`
+- `/Users/arvid/Private/beeno/crates/beeno-llm`
+- `/Users/arvid/Private/beeno/crates/beeno-llm-ollama`
+- `/Users/arvid/Private/beeno/crates/beeno-llm-openai`
 
-## What Exists Today
+Legacy Node prototype (transitional only):
 
-This repository currently contains an early Node-based prototype used to validate the LLM translation flow.
+- `/Users/arvid/Private/beeno/src`
 
-- Prototype path: `/Users/arvid/Private/beeno/src`
-- Limitation: executes through Node.js
+## Quickstart
 
-This prototype is transitional and will be replaced by the standalone runtime.
+Run JavaScript directly:
 
-## Immediate Build Plan
+```bash
+cargo run -p beeno -- run /Users/arvid/Private/beeno/examples/hello.js
+```
 
-1. Bootstrap `beeno-runtime` in Rust with embedded V8 (`deno_core`) or QuickJS.
-2. Implement module loader, permissions model, and event loop in Beeno.
-3. Move LLM translator into a compile stage: `source(any) -> js module graph`.
-4. Add Beeno-owned APIs (`fs`, `net`, `timers`, `process`) with explicit permissions.
-5. Add Node compatibility shims for high-value modules.
-6. Ship `beeno run` and `beeno repl` without requiring Node installation.
+Eval JavaScript expression:
 
-## Product Principle
+```bash
+cargo run -p beeno -- eval "1 + 2 + 3"
+```
 
-Beeno should feel as practical as Node, but safer and more capable due to:
+REPL:
 
-- LLM-assisted source ingestion and transformation.
-- Reproducible execution controls.
-- First-class security model.
+```bash
+cargo run -p beeno -- repl
+```
 
-## Next Artifact
+## `beeno run` flags
 
-See `/Users/arvid/Private/beeno/docs/architecture.md` for the concrete architecture skeleton and runtime boundaries.
+- `--lang <hint>`: source hint (e.g. `pseudocode`, `python`, `js`)
+- `--print-js`: print compiled JS before execution
+- `--no-cache`: disable compile cache
+- `--force-llm`: force translation even for `.js`
+- `--provider <auto|ollama|openai>`: provider routing mode (default: `auto`)
+- `--ollama-url <url>`: override local Ollama base URL
+- `--model <name>`: override model for selected provider
+
+## Provider behavior
+
+Default provider mode is local-first auto routing:
+
+1. Try Ollama if reachable (`http://127.0.0.1:11434` by default)
+2. Fall back to OpenAI-compatible HTTP provider
+
+Environment variables:
+
+- `BEENO_OLLAMA_URL` (default: `http://127.0.0.1:11434`)
+- `BEENO_OLLAMA_MODEL` (default: `qwen2.5-coder:7b`)
+- `OPENAI_API_KEY` (required when OpenAI-compatible provider is used)
+- `OPENAI_BASE_URL` (default: `https://api.openai.com/v1`)
+- `BEENO_MODEL` (default: `gpt-4.1-mini`)
+
+## Cache
+
+Compile cache is file-based at:
+
+- `$HOME/.beeno/cache/compile`
+
+Cache key includes source hash, source id, language hint, provider id, model id, and prompt version.
+
+## Tests
+
+Run required offline tests:
+
+```bash
+cargo test --workspace
+```
+
+Live-provider tests are present but ignored by default and gated by:
+
+- `BEENO_RUN_LIVE_TESTS=1`
+
+## Current non-goals
+
+- Node compatibility shims (`node:*`) are not implemented yet.
+- Module graph/import loader is deferred.
+- Permission model flags are deferred.
