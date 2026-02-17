@@ -30,6 +30,9 @@ cargo run -p beeno -- eval "1 + 2 + 3"
 cargo run -p beeno -- repl
 ```
 
+If no input file is provided (`beeno` or `beeno run`), Beeno starts REPL automatically.
+REPL input is treated as pseudocode and sent through the LLM compile path before execution.
+
 ## Short Dev Commands
 
 Cargo aliases are configured in `.cargo/config.toml`:

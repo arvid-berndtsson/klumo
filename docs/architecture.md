@@ -51,6 +51,10 @@ Auto mode remains local-first:
 1. Try Ollama if reachable.
 2. Fallback to OpenAI-compatible provider.
 
+REPL behavior:
+- `beeno` and `beeno run` (without file) enter REPL.
+- REPL lines are compiled via LLM (pseudocode hint) before execution.
+
 Routing errors are now rendered as readable multi-line attempt summaries.
 
 ## Dev Ergonomics

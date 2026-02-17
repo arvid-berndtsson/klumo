@@ -1,8 +1,8 @@
 use anyhow::{Context, Result, anyhow};
-use beeno_compiler::{CompilerRouter, FileCompileCache, SourceKind};
+use beeno_compiler::{CompileRequest, Compiler, CompilerRouter, FileCompileCache, SourceKind};
 use beeno_config::{
-    CliRunOverrides, EnvConfig, ProgressSetting, ProviderSetting, load_file_config,
-    resolve_run_defaults,
+    CliRunOverrides, EnvConfig, ProgressSetting, ProviderSetting, RunDefaults,
+    load_file_config, resolve_run_defaults,
 };
 use beeno_core::{ProgressMode, RunOptions, eval_inline, run_file};
 use beeno_engine::{BoaEngine, JsEngine};
@@ -69,12 +69,18 @@ enum Commands {
     /// Evaluate inline JavaScript.
     Eval { code: String },
     /// Start a JavaScript REPL.
-    Repl,
+    Repl {
+        #[arg(long)]
+        config: Option<PathBuf>,
+    },
 }
 
 struct OllamaProbe {
     client: OllamaClient,
 }
+
+type BeenoProviderRouter = ProviderRouter<OllamaClient, MaybeOpenAiClient, OllamaProbe>;
+type BeenoCompiler = CompilerRouter<BeenoProviderRouter, FileCompileCache>;
 
 impl ReachabilityProbe for OllamaProbe {
     fn ollama_reachable(&self) -> bool {
@@ -121,6 +127,41 @@ fn resolved_progress_mode(progress: ProgressSetting, verbose: bool) -> ProgressM
     }
 }
 
+fn resolve_config(
+    config: Option<PathBuf>,
+    cli_overrides: &CliRunOverrides,
+) -> Result<RunDefaults> {
+    let cwd = std::env::current_dir().context("failed getting current directory")?;
+    let file_cfg = load_file_config(config.as_deref(), &cwd)?;
+    let env_cfg = EnvConfig::from_current_env();
+    Ok(resolve_run_defaults(cli_overrides, &env_cfg, file_cfg.as_ref()))
+}
+
+fn build_compiler(resolved: &RunDefaults) -> Result<BeenoCompiler> {
+    let ollama_client = OllamaClient::new(resolved.ollama_url.clone())?;
+    let openai_client = MaybeOpenAiClient {
+        inner: resolved
+            .openai_api_key
+            .clone()
+            .map(|api_key| OpenAiCompatibleClient::from_parts(resolved.openai_base_url.clone(), api_key)),
+    };
+
+    let router = ProviderRouter {
+        ollama: ollama_client.clone(),
+        openai: openai_client,
+        reachability: OllamaProbe {
+            client: ollama_client,
+        },
+        ollama_model: resolved.ollama_model.clone(),
+        openai_model: resolved.openai_model.clone(),
+    };
+
+    Ok(CompilerRouter {
+        translator: router,
+        cache: FileCompileCache::default(),
+    })
+}
+
 fn build_engine() -> Result<Box<dyn JsEngine>> {
     let selected = std::env::var("BEENO_ENGINE").unwrap_or_else(|_| "boa".to_string());
     match selected.trim().to_ascii_lowercase().as_str() {
@@ -146,10 +187,6 @@ fn run_command(
     ollama_url: Option<String>,
     model: Option<String>,
 ) -> Result<()> {
-    let cwd = std::env::current_dir().context("failed getting current directory")?;
-    let file_cfg = load_file_config(config.as_deref(), &cwd)?;
-    let env_cfg = EnvConfig::from_current_env();
-
     let cli_overrides = CliRunOverrides {
         provider: provider.map(ProviderArg::as_setting),
         ollama_url,
@@ -162,30 +199,8 @@ fn run_command(
         no_progress: no_progress.then_some(true),
     };
 
-    let resolved = resolve_run_defaults(&cli_overrides, &env_cfg, file_cfg.as_ref());
-
-    let ollama_client = OllamaClient::new(resolved.ollama_url.clone())?;
-    let openai_client = MaybeOpenAiClient {
-        inner: resolved
-            .openai_api_key
-            .clone()
-            .map(|api_key| OpenAiCompatibleClient::from_parts(resolved.openai_base_url.clone(), api_key)),
-    };
-
-    let router = ProviderRouter {
-        ollama: ollama_client.clone(),
-        openai: openai_client,
-        reachability: OllamaProbe {
-            client: ollama_client,
-        },
-        ollama_model: resolved.ollama_model,
-        openai_model: resolved.openai_model,
-    };
-
-    let compiler = CompilerRouter {
-        translator: router,
-        cache: FileCompileCache::default(),
-    };
+    let resolved = resolve_config(config, &cli_overrides)?;
+    let compiler = build_compiler(&resolved)?;
 
     let options = RunOptions {
         kind_hint: parse_kind_hint(resolved.lang.as_deref()),
@@ -218,9 +233,18 @@ fn eval_command(code: String) -> Result<()> {
     Ok(())
 }
 
-fn repl_command() -> Result<()> {
+fn repl_command(config: Option<PathBuf>) -> Result<()> {
+    let cli_overrides = CliRunOverrides::default();
+    let resolved = resolve_config(config, &cli_overrides)?;
+    let compiler = build_compiler(&resolved)?;
+
     let mut engine = build_engine()?;
     let mut line = String::new();
+    let repl_lang = resolved
+        .lang
+        .clone()
+        .unwrap_or_else(|| "pseudocode".to_string());
+    let provider_selection = provider_to_selection(resolved.provider);
 
     println!("Beeno REPL (M2). Type .exit to quit.");
     loop {
@@ -243,10 +267,32 @@ fn repl_command() -> Result<()> {
             break;
         }
 
-        match engine.as_mut().eval_script(trimmed, "<repl>") {
-            Ok(output) => {
-                if let Some(value) = output.value {
-                    println!("{value}");
+        let compiled = compiler.compile(&CompileRequest {
+            source_text: trimmed.to_string(),
+            source_id: "<repl>".to_string(),
+            kind_hint: Some(SourceKind::Unknown(repl_lang.clone())),
+            language_hint: Some(repl_lang.clone()),
+            force_llm: true,
+            provider_selection,
+            model_override: None,
+            no_cache: resolved.no_cache,
+        });
+
+        match compiled {
+            Ok(compiled) => {
+                if resolved.verbose || resolved.print_js {
+                    println!("/* ===== generated JavaScript ===== */");
+                    println!("{}", compiled.javascript);
+                    println!("/* ===== end generated JavaScript ===== */");
+                }
+
+                match engine.as_mut().eval_script(&compiled.javascript, "<repl>") {
+                    Ok(output) => {
+                        if let Some(value) = output.value {
+                            println!("{value}");
+                        }
+                    }
+                    Err(err) => eprintln!("error: {err:#}"),
                 }
             }
             Err(err) => eprintln!("error: {err:#}"),
@@ -288,10 +334,11 @@ fn main() -> Result<()> {
                     model,
                 )
             } else {
-                repl_command()
+                repl_command(config)
             }
         }
         Some(Commands::Eval { code }) => eval_command(code),
-        Some(Commands::Repl) | None => repl_command(),
+        Some(Commands::Repl { config }) => repl_command(config),
+        None => repl_command(None),
     }
 }

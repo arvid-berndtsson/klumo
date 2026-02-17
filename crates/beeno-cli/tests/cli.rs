@@ -17,22 +17,20 @@ fn eval_prints_result() {
 #[test]
 fn no_args_enters_repl() {
     Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
-        .write_stdin("1+1\n.exit\n")
+        .write_stdin(".exit\n")
         .assert()
         .success()
-        .stdout(contains("Beeno REPL"))
-        .stdout(contains("2"));
+        .stdout(contains("Beeno REPL"));
 }
 
 #[test]
 fn run_without_file_enters_repl() {
     Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
         .args(["run"])
-        .write_stdin("3+4\n.exit\n")
+        .write_stdin(".exit\n")
         .assert()
         .success()
-        .stdout(contains("Beeno REPL"))
-        .stdout(contains("7"));
+        .stdout(contains("Beeno REPL"));
 }
 
 #[test]
@@ -232,4 +230,18 @@ fn config_openai_api_key_is_used() {
         .failure()
         .stderr(contains("failed calling OpenAI-compatible endpoint"))
         .stderr(contains("OPENAI_API_KEY is required").not());
+}
+
+#[test]
+fn repl_routes_pseudocode_through_llm() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .env_remove("OPENAI_API_KEY")
+        .env("BEENO_PROVIDER", "openai")
+        .write_stdin("write hello\n.exit\n")
+        .output()
+        .expect("command should run");
+
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("OPENAI_API_KEY is required"));
 }
