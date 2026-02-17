@@ -202,24 +202,10 @@ pub(crate) fn fmt_command(paths: Vec<PathBuf>, check: bool) -> Result<()> {
     run_command_with_status("cargo", &args, "fmt")
 }
 
-pub(crate) fn test_command(paths: Vec<PathBuf>) -> Result<()> {
-    if let Some(script) = resolve_project_script("test")? {
-        return run_script_command("test", &script);
-    }
-
-    if use_deno_default()? {
-        let mut args = vec![OsString::from("test")];
-        for path in paths {
-            args.push(path.into_os_string());
-        }
-        return run_command_with_status("deno", &args, "test");
-    }
-
-    let mut args = vec![OsString::from("test")];
-    for path in paths {
-        args.push(path.into_os_string());
-    }
-    run_command_with_status("cargo", &args, "test")
+pub(crate) fn test_command(args: Vec<OsString>) -> Result<()> {
+    let mut deno_args = vec![OsString::from("test")];
+    deno_args.extend(args);
+    run_command_with_status("deno", &deno_args, "test")
 }
 
 pub(crate) fn run_script_command(script_name: &str, command_line: &str) -> Result<()> {

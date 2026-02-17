@@ -78,7 +78,7 @@ pub(crate) fn execute(cli: Cli) -> Result<()> {
         Some(Commands::Install { config, dry_run }) => install_dependencies(config, dry_run),
         Some(Commands::Lint { fix, paths }) => lint_command(paths, fix),
         Some(Commands::Fmt { check, paths }) => fmt_command(paths, check),
-        Some(Commands::Test { paths }) => test_command(paths),
+        Some(Commands::Test { args }) => test_command(args),
         Some(Commands::Repl {
             config,
             lang,

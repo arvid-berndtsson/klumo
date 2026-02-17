@@ -151,11 +151,11 @@ If `klumo.json` contains `scripts` entries with those names, Klumo prints a warn
 Default command behavior:
 - `klumo lint`: runs `scripts.lint` if present, otherwise `cargo clippy --all-targets --all-features`.
 - `klumo fmt`: runs `scripts.fmt` if present, otherwise `cargo fmt --all` (plus `--check` when requested).
-- `klumo test`: runs `scripts.test` if present, otherwise `cargo test`.
+- `klumo test`: runs built-in test flow equivalent to `deno test` CLI semantics (including Deno-style args/flags pass-through).
 
 Tool selection:
-- JS/TS project roots (for example `deno.json`/`deno.jsonc`, or `package.json` without `Cargo.toml`) prefer Deno for `lint`/`fmt`/`test`.
-- Rust workspace roots default to Cargo for those commands.
+- JS/TS project roots (for example `deno.json`/`deno.jsonc`, or `package.json` without `Cargo.toml`) prefer Deno for `lint`/`fmt`.
+- Rust workspace roots default to Cargo for `lint`/`fmt`.
 
 ## `klumo.json` (project defaults)
 

@@ -9,9 +9,8 @@ mod self_heal;
 use anyhow::{Context, Result, anyhow};
 use klumo_compiler::{CompileRequest, Compiler, SourceKind};
 use klumo_config::{CliRunOverrides, ProviderSetting};
-use klumo_core::{ProgressMode, RunOptions, compile_file, eval_inline, run_file};
+use klumo_core::{ProgressMode, compile_file, eval_inline, run_file};
 use klumo_engine::JsEngine;
-use klumo_llm::ProviderSelection;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -186,8 +185,8 @@ enum Commands {
     },
     /// Run tests (Deno-compatible defaults).
     Test {
-        #[arg(value_name = "PATH")]
-        paths: Vec<PathBuf>,
+        #[arg(value_name = "ARGS", allow_hyphen_values = true, trailing_var_arg = true)]
+        args: Vec<OsString>,
     },
     /// Evaluate inline JavaScript.
     Eval { code: String },
@@ -269,8 +268,8 @@ fn fmt_command(paths: Vec<PathBuf>, check: bool) -> Result<()> {
     project_commands::fmt_command(paths, check)
 }
 
-fn test_command(paths: Vec<PathBuf>) -> Result<()> {
-    project_commands::test_command(paths)
+fn test_command(args: Vec<OsString>) -> Result<()> {
+    project_commands::test_command(args)
 }
 
 fn run_script_command(script_name: &str, command_line: &str) -> Result<()> {
@@ -749,11 +748,10 @@ fn repl_command(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, REPL_HISTORY_LIMIT, backup_path_for,
-        build_self_heal_request, is_self_heal_supported_source, normalize_cli_args,
+use super::{
+        DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, REPL_HISTORY_LIMIT, normalize_cli_args,
     };
-    use super::{cli_defaults, project_commands, repl_helpers, repl_web};
+    use super::{cli_defaults, project_commands, repl_helpers, repl_web, self_heal};
     use klumo_config::FileConfig;
     use std::collections::{HashSet, VecDeque};
     use std::ffi::OsString;
@@ -827,24 +825,27 @@ mod tests {
 
     #[test]
     fn self_heal_supported_extensions_are_limited() {
-        assert!(is_self_heal_supported_source(Path::new("a.js")));
-        assert!(is_self_heal_supported_source(Path::new("a.mjs")));
-        assert!(is_self_heal_supported_source(Path::new("a.cjs")));
-        assert!(is_self_heal_supported_source(Path::new("a.jsx")));
-        assert!(!is_self_heal_supported_source(Path::new("a.ts")));
-        assert!(!is_self_heal_supported_source(Path::new("a.pseudo")));
+        assert!(self_heal::is_self_heal_supported_source(Path::new("a.js")));
+        assert!(self_heal::is_self_heal_supported_source(Path::new("a.mjs")));
+        assert!(self_heal::is_self_heal_supported_source(Path::new("a.cjs")));
+        assert!(self_heal::is_self_heal_supported_source(Path::new("a.jsx")));
+        assert!(!self_heal::is_self_heal_supported_source(Path::new("a.ts")));
+        assert!(!self_heal::is_self_heal_supported_source(Path::new("a.pseudo")));
     }
 
     #[test]
     fn backup_path_is_derived_from_file_name() {
-        let backup = backup_path_for(Path::new("/tmp/demo.js"));
+        let backup = self_heal::backup_path_for(Path::new("/tmp/demo.js"));
         assert_eq!(backup.to_string_lossy(), "/tmp/demo.js.klumo.bak");
     }
 
     #[test]
     fn self_heal_prompt_contains_error_and_source() {
-        let prompt =
-            build_self_heal_request(Path::new("demo.js"), "console.log(1)", "ReferenceError");
+        let prompt = self_heal::build_self_heal_request(
+            Path::new("demo.js"),
+            "console.log(1)",
+            "ReferenceError",
+        );
         assert!(prompt.contains("demo.js"));
         assert!(prompt.contains("ReferenceError"));
         assert!(prompt.contains("console.log(1)"));

@@ -196,6 +196,19 @@ fn lint_is_treated_as_builtin_command_not_file_argument() {
 }
 
 #[test]
+fn test_command_uses_deno_semantics() {
+    let dir = tempdir().expect("tempdir should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("klumo"))
+        .args(["test", "--allow-all"])
+        .env("PATH", "")
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(contains("failed running deno test"));
+}
+
+#[test]
 fn bundle_js_file_writes_output() {
     let dir = tempdir().expect("tempdir should work");
     let input = dir.path().join("hello.js");
