@@ -13,6 +13,7 @@ use beeno_llm::{
 use beeno_llm_ollama::OllamaClient;
 use beeno_llm_openai::OpenAiCompatibleClient;
 use clap::{Parser, Subcommand, ValueEnum};
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -147,6 +148,30 @@ fn sanitize_repl_javascript(input: &str) -> String {
     }
 
     output.trim_end().to_string()
+}
+
+fn read_global_names(engine: &mut dyn JsEngine) -> Result<HashSet<String>> {
+    let out = engine
+        .eval_script("JSON.stringify(Object.getOwnPropertyNames(globalThis))", "<repl-scope>")
+        .context("failed reading REPL global scope")?;
+    let raw = out
+        .value
+        .ok_or_else(|| anyhow!("scope probe returned empty result"))?;
+    let names: Vec<String> =
+        serde_json::from_str(&raw).context("failed parsing REPL global scope JSON")?;
+    Ok(names.into_iter().collect())
+}
+
+fn scope_context_text(bindings: &HashSet<String>) -> Option<String> {
+    if bindings.is_empty() {
+        return None;
+    }
+    let mut names: Vec<&str> = bindings.iter().map(String::as_str).collect();
+    names.sort_unstable();
+    Some(format!(
+        "Bindings currently defined in this REPL session: {}. Avoid redeclaring them with const/let/class.",
+        names.join(", ")
+    ))
 }
 
 fn provider_to_selection(provider: ProviderSetting) -> ProviderSelection {
@@ -304,6 +329,8 @@ fn repl_command(
     let compiler = build_compiler(&resolved)?;
 
     let mut engine = build_engine()?;
+    let baseline_globals = read_global_names(engine.as_mut())?;
+    let mut known_bindings: HashSet<String> = HashSet::new();
     let mut line = String::new();
     let repl_lang = resolved
         .lang
@@ -337,6 +364,7 @@ fn repl_command(
             source_id: "<repl>".to_string(),
             kind_hint: Some(SourceKind::Unknown(repl_lang.clone())),
             language_hint: Some(repl_lang.clone()),
+            scope_context: scope_context_text(&known_bindings),
             force_llm: true,
             provider_selection,
             model_override: cli_overrides.model.clone(),
@@ -361,6 +389,13 @@ fn repl_command(
                     Ok(output) => {
                         if let Some(value) = output.value {
                             println!("{value}");
+                        }
+                        if let Ok(current) = read_global_names(engine.as_mut()) {
+                            known_bindings = current
+                                .difference(&baseline_globals)
+                                .filter(|name| !name.starts_with("__beeno_"))
+                                .cloned()
+                                .collect();
                         }
                     }
                     Err(err) => eprintln!("error: {err:#}"),

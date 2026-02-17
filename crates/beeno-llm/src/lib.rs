@@ -26,6 +26,7 @@ pub struct LlmTranslateRequest {
     pub source_text: String,
     pub source_id: String,
     pub language_hint: Option<String>,
+    pub scope_context: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,6 +272,7 @@ mod tests {
             source_text: "write 1".to_string(),
             source_id: "sample.pseudo".to_string(),
             language_hint: Some("pseudo".to_string()),
+            scope_context: None,
         }
     }
 

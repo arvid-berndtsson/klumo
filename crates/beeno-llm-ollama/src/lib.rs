@@ -88,10 +88,15 @@ fn build_prompt(req: &LlmTranslateRequest) -> String {
     } else {
         ""
     };
+    let scope_context = req
+        .scope_context
+        .as_ref()
+        .map(|ctx| format!("Scope context:\n{ctx}\n"))
+        .unwrap_or_default();
 
     format!(
-        "You are a strict transpiler. Return only runnable modern JavaScript (Node-style ESM), no prose.\\n{}Source id: {}\\nLanguage hint: {}\\nINPUT START\\n{}\\nINPUT END",
-        repl_rule, req.source_id, hint, req.source_text
+        "You are a strict transpiler. Return only runnable modern JavaScript (Node-style ESM), no prose.\\n{}{}Source id: {}\\nLanguage hint: {}\\nINPUT START\\n{}\\nINPUT END",
+        repl_rule, scope_context, req.source_id, hint, req.source_text
     )
 }
 
@@ -117,6 +122,7 @@ mod tests {
             source_text: "write hello".to_string(),
             source_id: "live.pseudo".to_string(),
             language_hint: Some("pseudocode".to_string()),
+            scope_context: None,
         };
 
         let out = client

@@ -19,6 +19,7 @@ beeno-llm = { path = "../beeno-llm" }
 beeno-llm-ollama = { path = "../beeno-llm-ollama" }
 beeno-llm-openai = { path = "../beeno-llm-openai" }
 clap.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

@@ -54,6 +54,7 @@ where
         source_id: path.display().to_string(),
         kind_hint: options.kind_hint.clone(),
         language_hint: options.language_hint.clone(),
+        scope_context: None,
         force_llm: options.force_llm,
         provider_selection: options.provider_selection,
         model_override: options.model_override.clone(),
