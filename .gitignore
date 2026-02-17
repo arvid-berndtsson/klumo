@@ -2,8 +2,9 @@
 /target/
 **/*.rs.bk
 
-# Cargo local config (optional machine-specific)
-.cargo/
+# Cargo local config (keep aliases file tracked)
+.cargo/*
+!.cargo/config.toml
 
 # Node prototype
 /node_modules/

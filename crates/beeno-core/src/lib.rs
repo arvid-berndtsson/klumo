@@ -5,6 +5,13 @@ use beeno_llm::ProviderSelection;
 use std::fs;
 use std::path::Path;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgressMode {
+    Silent,
+    Minimal,
+    Verbose,
+}
+
 #[derive(Debug, Clone)]
 pub struct RunOptions {
     pub kind_hint: Option<SourceKind>,
@@ -14,7 +21,7 @@ pub struct RunOptions {
     pub print_js: bool,
     pub provider_selection: ProviderSelection,
     pub model_override: Option<String>,
-    pub verbose: bool,
+    pub progress_mode: ProgressMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,13 +40,13 @@ where
     E: JsEngine,
     C: Compiler,
 {
-    if options.verbose {
+    if matches!(options.progress_mode, ProgressMode::Verbose) {
         eprintln!("[beeno] loading source {}", path.display());
     }
     let source = fs::read_to_string(path)
         .with_context(|| format!("failed reading script file {}", path.display()))?;
 
-    if options.verbose {
+    if matches!(options.progress_mode, ProgressMode::Verbose) {
         eprintln!("[beeno] compiling source (force_llm={})", options.force_llm);
     }
     let compile = compiler.compile(&CompileRequest {
@@ -59,16 +66,35 @@ where
         println!("/* ===== end generated JavaScript ===== */");
     }
 
-    if options.verbose {
-        eprintln!(
-            "[beeno] compile complete provider={:?} model={:?} cache_hit={}",
-            compile.metadata.provider, compile.metadata.model, compile.metadata.cache_hit
-        );
-        eprintln!("[beeno] executing JavaScript");
+    let llm_path = compile.metadata.provider.is_some();
+    match options.progress_mode {
+        ProgressMode::Silent => {}
+        ProgressMode::Minimal => {
+            if llm_path {
+                let provider = compile
+                    .metadata
+                    .provider
+                    .map(|p| format!("{p:?}").to_ascii_lowercase())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let model = compile.metadata.model.clone().unwrap_or_default();
+                eprintln!(
+                    "[beeno] compiling via {}:{} (cache_hit={})",
+                    provider, model, compile.metadata.cache_hit
+                );
+                eprintln!("[beeno] executing");
+            }
+        }
+        ProgressMode::Verbose => {
+            eprintln!(
+                "[beeno] compile complete provider={:?} model={:?} cache_hit={}",
+                compile.metadata.provider, compile.metadata.model, compile.metadata.cache_hit
+            );
+            eprintln!("[beeno] executing JavaScript");
+        }
     }
 
     let eval = engine.eval_script(&compile.javascript, &path.display().to_string())?;
-    if options.verbose {
+    if matches!(options.progress_mode, ProgressMode::Verbose) {
         eprintln!("[beeno] execution complete");
     }
     Ok(RunOutcome { compile, eval })

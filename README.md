@@ -2,93 +2,121 @@
 
 **Slogan:** "Beeno, run node smarter, but with LLM benefits"
 
-Beeno is a standalone Rust runtime direction with LLM-assisted source compilation.
+Beeno is a standalone runtime in Rust with LLM-assisted compilation for non-JS input.
 
-## Status
+## Current UX (M2)
 
-M1 foundation is implemented with engine abstraction, compiler abstraction, provider routing, and tests.
+- `beeno run <file>` is the primary command.
+- Project defaults can live in `beeno.json`.
+- Common runs no longer need long flag lists.
+- Non-JS runs show minimal progress lines by default.
 
-Current workspace crates:
+## Workspace Crates
 
-- `/Users/arvid/Private/beeno/crates/beeno-cli` (binary `beeno`)
-- `/Users/arvid/Private/beeno/crates/beeno-core`
-- `/Users/arvid/Private/beeno/crates/beeno-engine`
-- `/Users/arvid/Private/beeno/crates/beeno-compiler`
-- `/Users/arvid/Private/beeno/crates/beeno-llm`
-- `/Users/arvid/Private/beeno/crates/beeno-llm-ollama`
-- `/Users/arvid/Private/beeno/crates/beeno-llm-openai`
-
-Legacy Node prototype (transitional only):
-
-- `/Users/arvid/Private/beeno/src`
+- `crates/beeno-cli`
+- `crates/beeno-config`
+- `crates/beeno-core`
+- `crates/beeno-engine`
+- `crates/beeno-compiler`
+- `crates/beeno-llm`
+- `crates/beeno-llm-ollama`
+- `crates/beeno-llm-openai`
 
 ## Quickstart
 
-Run JavaScript directly:
-
 ```bash
-cargo run -p beeno -- run /Users/arvid/Private/beeno/examples/hello.js
-```
-
-Eval JavaScript expression:
-
-```bash
+cargo run -p beeno -- run examples/hello.js
 cargo run -p beeno -- eval "1 + 2 + 3"
-```
-
-REPL:
-
-```bash
 cargo run -p beeno -- repl
 ```
 
-## `beeno run` flags
+## Short Dev Commands
 
-- `--lang <hint>`: source hint (e.g. `pseudocode`, `python`, `js`)
-- `--print-js`: print compiled JS before execution
-- `--no-cache`: disable compile cache
-- `--force-llm`: force translation even for `.js`
-- `--provider <auto|ollama|openai>`: provider routing mode (default: `auto`)
-- `--ollama-url <url>`: override local Ollama base URL
-- `--model <name>`: override model for selected provider
+Cargo aliases are configured in `.cargo/config.toml`:
 
-## Provider behavior
+```bash
+cargo beeno run examples/hello.pseudocode
+cargo btest
+```
 
-Default provider mode is local-first auto routing:
+## `beeno run` Flags
 
-1. Try Ollama if reachable (`http://127.0.0.1:11434` by default)
-2. Fall back to OpenAI-compatible HTTP provider
+- `--config <path>`
+- `--lang <hint>`
+- `--provider <auto|ollama|openai>`
+- `--ollama-url <url>`
+- `--model <name>`
+- `--force-llm`
+- `--print-js`
+- `--no-cache`
+- `--verbose`
+- `--no-progress`
 
-Environment variables:
+## `beeno.json` (project defaults)
 
-- `BEENO_OLLAMA_URL` (default: `http://127.0.0.1:11434`)
-- `BEENO_OLLAMA_MODEL` (default: `qwen2.5-coder:7b`)
-- `OPENAI_API_KEY` (required when OpenAI-compatible provider is used)
-- `OPENAI_BASE_URL` (default: `https://api.openai.com/v1`)
-- `BEENO_MODEL` (default: `gpt-4.1-mini`)
+Example:
 
-## Cache
+```json
+{
+  "provider": "auto",
+  "ollama_url": "http://127.0.0.1:11434",
+  "ollama_model": "qwen2.5-coder:7b",
+  "openai_base_url": "https://api.openai.com/v1",
+  "openai_model": "gpt-4.1-mini",
+  "lang": "pseudocode",
+  "force_llm": true,
+  "print_js": false,
+  "no_cache": false,
+  "verbose": false,
+  "progress": "auto"
+}
+```
 
-Compile cache is file-based at:
+Lookup order:
+1. `--config <path>`
+2. `./beeno.json`
+3. no file
 
-- `$HOME/.beeno/cache/compile`
+Precedence:
+`CLI flags > env vars > beeno.json > defaults`
 
-Cache key includes source hash, source id, language hint, provider id, model id, and prompt version.
+## Environment Variables
+
+- `BEENO_PROVIDER`
+- `BEENO_OLLAMA_URL`
+- `BEENO_OLLAMA_MODEL`
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `BEENO_MODEL`
+- `BEENO_LANG`
+- `BEENO_FORCE_LLM`
+- `BEENO_PRINT_JS`
+- `BEENO_NO_CACHE`
+- `BEENO_VERBOSE`
+- `BEENO_PROGRESS`
+
+## Progress Output
+
+Default behavior:
+- JS passthrough runs: no status lines.
+- LLM compile path: minimal status lines (compile + execute).
+
+Controls:
+- `--verbose` for detailed trace.
+- `--no-progress` to suppress status lines.
 
 ## Tests
-
-Run required offline tests:
 
 ```bash
 cargo test --workspace
 ```
 
-Live-provider tests are present but ignored by default and gated by:
+Live provider tests remain ignored by default and are gated by:
 
 - `BEENO_RUN_LIVE_TESTS=1`
 
-## Current non-goals
+## Deferred
 
-- Node compatibility shims (`node:*`) are not implemented yet.
-- Module graph/import loader is deferred.
-- Permission model flags are deferred.
+- V8 migration (`deno_core` / `rusty_v8`) is planned next.
+- Node compatibility shims are not implemented yet.
+- Module graph/import loader and permission flags are deferred.

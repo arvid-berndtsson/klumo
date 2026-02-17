@@ -1,0 +1,9 @@
+---
+source: crates/beeno-cli/tests/cli.rs
+expression: stderr
+---
+Error: failed running <TMP>/hello.pseudo
+
+Caused by:
+    LLM routing failed:
+    - openai-compatible (translate) OPENAI_API_KEY is required for OpenAI-compatible translation

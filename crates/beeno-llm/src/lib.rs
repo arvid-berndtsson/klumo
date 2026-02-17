@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
-use thiserror::Error;
+use std::error::Error as StdError;
+use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Provider {
@@ -39,13 +40,37 @@ pub struct ProviderAttempt {
     pub provider: Provider,
     pub stage: &'static str,
     pub error: String,
+    pub note: Option<String>,
 }
 
-#[derive(Debug, Error)]
-#[error("LLM routing failed after {attempts:?}")]
+#[derive(Debug)]
 pub struct ProviderRoutingError {
     pub attempts: Vec<ProviderAttempt>,
 }
+
+impl fmt::Display for ProviderRoutingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "LLM routing failed:")?;
+        for attempt in &self.attempts {
+            let provider = match attempt.provider {
+                Provider::Ollama => "ollama",
+                Provider::OpenAiCompatible => "openai-compatible",
+            };
+            if let Some(note) = &attempt.note {
+                writeln!(
+                    f,
+                    "- {} ({}) {} [{}]",
+                    provider, attempt.stage, attempt.error, note
+                )?;
+            } else {
+                writeln!(f, "- {} ({}) {}", provider, attempt.stage, attempt.error)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl StdError for ProviderRoutingError {}
 
 pub trait LlmClient {
     fn translate_to_js(&self, req: &LlmTranslateRequest, model: &str) -> Result<String>;
@@ -185,14 +210,25 @@ where
         let chain = self.candidate_chain(selection);
         let mut attempts = Vec::new();
 
-        for entry in chain {
+        let total = chain.len();
+        for (index, entry) in chain.into_iter().enumerate() {
             match self.call_provider(entry.provider, req, model_override) {
                 Ok(response) => return Ok(response),
-                Err(err) => attempts.push(ProviderAttempt {
-                    provider: entry.provider,
-                    stage: "translate",
-                    error: err.to_string(),
-                }),
+                Err(err) => {
+                    let note = if index + 1 < total && matches!(entry.provider, Provider::Ollama)
+                    {
+                        Some("Ollama failed, falling back to OpenAI-compatible".to_string())
+                    } else {
+                        None
+                    };
+
+                    attempts.push(ProviderAttempt {
+                        provider: entry.provider,
+                        stage: "translate",
+                        error: err.to_string(),
+                        note,
+                    })
+                }
             }
         }
 
@@ -323,5 +359,30 @@ mod tests {
             .expect("openai path should work");
         assert_eq!(response.provider, Provider::OpenAiCompatible);
         assert_eq!(response.javascript, "9");
+    }
+
+    #[test]
+    fn routing_error_is_human_readable_with_fallback_note() {
+        let router = ProviderRouter {
+            ollama: StubClient {
+                fail: true,
+                output: String::new(),
+            },
+            openai: StubClient {
+                fail: true,
+                output: String::new(),
+            },
+            reachability: Probe(true),
+            ollama_model: "ollama-model".to_string(),
+            openai_model: "openai-model".to_string(),
+        };
+
+        let err = router
+            .translate(ProviderSelection::Auto, &req(), None)
+            .expect_err("expected routing failure");
+        let rendered = format!("{err:#}");
+        assert!(rendered.contains("LLM routing failed"));
+        assert!(rendered.contains("ollama"));
+        assert!(rendered.contains("falling back to OpenAI-compatible"));
     }
 }

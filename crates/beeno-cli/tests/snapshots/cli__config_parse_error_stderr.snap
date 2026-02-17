@@ -1,0 +1,8 @@
+---
+source: crates/beeno-cli/tests/cli.rs
+expression: stderr
+---
+Error: failed parsing config file /private<TMP>/beeno.json
+
+Caused by:
+    EOF while parsing a value at line 3 column 0

@@ -1,6 +1,10 @@
 use anyhow::{Context, Result, anyhow};
 use beeno_compiler::{CompilerRouter, FileCompileCache, SourceKind};
-use beeno_core::{RunOptions, eval_inline, run_file};
+use beeno_config::{
+    CliRunOverrides, EnvConfig, ProgressSetting, ProviderSetting, load_file_config,
+    resolve_run_defaults,
+};
+use beeno_core::{ProgressMode, RunOptions, eval_inline, run_file};
 use beeno_engine::{BoaEngine, JsEngine};
 use beeno_llm::{
     LlmClient, LlmTranslateRequest, ProviderSelection, ProviderRouter, ReachabilityProbe,
@@ -19,17 +23,17 @@ enum ProviderArg {
 }
 
 impl ProviderArg {
-    fn as_selection(self) -> ProviderSelection {
+    fn as_setting(self) -> ProviderSetting {
         match self {
-            ProviderArg::Auto => ProviderSelection::Auto,
-            ProviderArg::Ollama => ProviderSelection::Ollama,
-            ProviderArg::Openai => ProviderSelection::OpenAiCompatible,
+            ProviderArg::Auto => ProviderSetting::Auto,
+            ProviderArg::Ollama => ProviderSetting::Ollama,
+            ProviderArg::Openai => ProviderSetting::Openai,
         }
     }
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "beeno", version, about = "Beeno runtime (M1)")]
+#[command(name = "beeno", version, about = "Beeno runtime (M2 UX)")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -41,6 +45,8 @@ enum Commands {
     Run {
         file: PathBuf,
         #[arg(long)]
+        config: Option<PathBuf>,
+        #[arg(long)]
         lang: Option<String>,
         #[arg(long)]
         print_js: bool,
@@ -48,14 +54,16 @@ enum Commands {
         no_cache: bool,
         #[arg(long)]
         force_llm: bool,
-        #[arg(long, value_enum, default_value_t = ProviderArg::Auto)]
-        provider: ProviderArg,
+        #[arg(long)]
+        no_progress: bool,
+        #[arg(long)]
+        verbose: bool,
+        #[arg(long, value_enum)]
+        provider: Option<ProviderArg>,
         #[arg(long)]
         ollama_url: Option<String>,
         #[arg(long)]
         model: Option<String>,
-        #[arg(long)]
-        verbose: bool,
     },
     /// Evaluate inline JavaScript.
     Eval { code: String },
@@ -90,27 +98,65 @@ fn parse_kind_hint(lang: Option<&str>) -> Option<SourceKind> {
     lang.map(SourceKind::from_hint)
 }
 
+fn provider_to_selection(provider: ProviderSetting) -> ProviderSelection {
+    match provider {
+        ProviderSetting::Auto => ProviderSelection::Auto,
+        ProviderSetting::Ollama => ProviderSelection::Ollama,
+        ProviderSetting::Openai => ProviderSelection::OpenAiCompatible,
+    }
+}
+
+fn resolved_progress_mode(progress: ProgressSetting, verbose: bool) -> ProgressMode {
+    match progress {
+        ProgressSetting::Silent => ProgressMode::Silent,
+        ProgressSetting::Verbose => ProgressMode::Verbose,
+        ProgressSetting::Auto => {
+            if verbose {
+                ProgressMode::Verbose
+            } else {
+                ProgressMode::Minimal
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_command(
     file: PathBuf,
+    config: Option<PathBuf>,
     lang: Option<String>,
     print_js: bool,
     no_cache: bool,
     force_llm: bool,
-    provider: ProviderArg,
+    no_progress: bool,
+    verbose: bool,
+    provider: Option<ProviderArg>,
     ollama_url: Option<String>,
     model: Option<String>,
-    verbose: bool,
 ) -> Result<()> {
-    let ollama_url = ollama_url
-        .or_else(|| std::env::var("BEENO_OLLAMA_URL").ok())
-        .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
-    let ollama_model = std::env::var("BEENO_OLLAMA_MODEL")
-        .unwrap_or_else(|_| "qwen2.5-coder:7b".to_string());
-    let openai_model = std::env::var("BEENO_MODEL").unwrap_or_else(|_| "gpt-4.1-mini".to_string());
+    let cwd = std::env::current_dir().context("failed getting current directory")?;
+    let file_cfg = load_file_config(config.as_deref(), &cwd)?;
+    let env_cfg = EnvConfig::from_current_env();
 
-    let ollama_client = OllamaClient::new(ollama_url)?;
+    let cli_overrides = CliRunOverrides {
+        provider: provider.map(ProviderArg::as_setting),
+        ollama_url,
+        model,
+        lang,
+        force_llm: force_llm.then_some(true),
+        print_js: print_js.then_some(true),
+        no_cache: no_cache.then_some(true),
+        verbose: verbose.then_some(true),
+        no_progress: no_progress.then_some(true),
+    };
+
+    let resolved = resolve_run_defaults(&cli_overrides, &env_cfg, file_cfg.as_ref());
+
+    let ollama_client = OllamaClient::new(resolved.ollama_url.clone())?;
     let openai_client = MaybeOpenAiClient {
-        inner: OpenAiCompatibleClient::from_env().ok(),
+        inner: std::env::var("OPENAI_API_KEY")
+            .ok()
+            .map(|api_key| OpenAiCompatibleClient::from_parts(resolved.openai_base_url.clone(), api_key)),
     };
 
     let router = ProviderRouter {
@@ -119,8 +165,8 @@ fn run_command(
         reachability: OllamaProbe {
             client: ollama_client,
         },
-        ollama_model,
-        openai_model,
+        ollama_model: resolved.ollama_model,
+        openai_model: resolved.openai_model,
     };
 
     let compiler = CompilerRouter {
@@ -129,23 +175,17 @@ fn run_command(
     };
 
     let options = RunOptions {
-        kind_hint: parse_kind_hint(lang.as_deref()),
-        language_hint: lang,
-        force_llm,
-        no_cache,
-        print_js,
-        provider_selection: provider.as_selection(),
-        model_override: model,
-        verbose,
+        kind_hint: parse_kind_hint(resolved.lang.as_deref()),
+        language_hint: resolved.lang,
+        force_llm: resolved.force_llm,
+        no_cache: resolved.no_cache,
+        print_js: resolved.print_js,
+        provider_selection: provider_to_selection(resolved.provider),
+        model_override: cli_overrides.model,
+        progress_mode: resolved_progress_mode(resolved.progress, resolved.verbose),
     };
 
     let mut engine = BoaEngine::new();
-    if verbose {
-        eprintln!(
-            "[beeno] run provider={:?} force_llm={} lang={:?}",
-            provider, force_llm, options.language_hint
-        );
-    }
     let outcome = run_file(&mut engine, &compiler, &file, &options)
         .with_context(|| format!("failed running {}", file.display()))?;
 
@@ -169,7 +209,7 @@ fn repl_command() -> Result<()> {
     let mut engine = BoaEngine::new();
     let mut line = String::new();
 
-    println!("Beeno REPL (M1). Type .exit to quit.");
+    println!("Beeno REPL (M2). Type .exit to quit.");
     loop {
         line.clear();
         print!("beeno> ");
@@ -209,24 +249,28 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Run {
             file,
+            config,
             lang,
             print_js,
             no_cache,
             force_llm,
+            no_progress,
+            verbose,
             provider,
             ollama_url,
             model,
-            verbose,
         } => run_command(
             file,
+            config,
             lang,
             print_js,
             no_cache,
             force_llm,
+            no_progress,
+            verbose,
             provider,
             ollama_url,
             model,
-            verbose,
         ),
         Commands::Eval { code } => eval_command(code),
         Commands::Repl => repl_command(),

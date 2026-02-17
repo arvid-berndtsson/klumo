@@ -1,65 +1,63 @@
-# Beeno Runtime Architecture (M1)
+# Beeno Runtime Architecture (M2 UX)
 
 ## Goal
 
-Build a standalone runtime that executes JavaScript directly and compiles non-JS input through an LLM pipeline without depending on Node.js runtime execution.
+Deliver a Deno-like daily workflow while keeping Beeno standalone and LLM-capable.
 
-## Implemented M1 Components
+## Implemented Layers
 
-- `beeno-cli`: command surface (`run`, `eval`, `repl`)
-- `beeno-core`: orchestration (`read -> compile -> execute`)
-- `beeno-engine`: `JsEngine` trait + `BoaEngine` implementation
-- `beeno-compiler`: source-kind routing + compile cache
-- `beeno-llm`: provider contracts, output normalization, provider router
-- `beeno-llm-ollama`: dedicated Ollama client with reachability preflight
-- `beeno-llm-openai`: OpenAI-compatible HTTP client
+- `beeno-cli`: command entrypoint and UX flags.
+- `beeno-config`: `beeno.json` loading + env + CLI merge.
+- `beeno-core`: run orchestration (`load -> compile -> execute`) and progress modes.
+- `beeno-engine`: `JsEngine` trait + `BoaEngine` backend.
+- `beeno-compiler`: source routing + provider/model-aware compile cache.
+- `beeno-llm`: provider contracts + routing + normalization.
+- `beeno-llm-ollama`: local Ollama adapter.
+- `beeno-llm-openai`: OpenAI-compatible adapter.
 
-## Runtime Flow (`beeno run`)
+## Config Resolution
 
-1. Read file source.
-2. Resolve source kind from `--lang` or file extension.
-3. If JavaScript and not `--force-llm`, passthrough compile.
-4. Otherwise compile via LLM provider routing.
-5. Provider mode `auto`:
-   - use Ollama first if reachable,
-   - fallback to OpenAI-compatible provider on failure.
-6. Cache compiled JS under provider/model-aware key.
-7. Execute generated JS through `JsEngine`.
+Run defaults are resolved with strict precedence:
 
-## Public Internal Interfaces
+1. CLI flags
+2. Environment variables
+3. `beeno.json`
+4. Hardcoded defaults
 
-- `JsEngine` (`beeno-engine`)
-- `Compiler` and `CompileCache` (`beeno-compiler`)
-- `LlmClient` and `TranslationService` (`beeno-llm`)
-- `ProviderRouter` (`beeno-llm`)
+`beeno.json` currently supports:
+- provider, model/base URLs
+- lang
+- force_llm / print_js / no_cache
+- verbose / progress
 
-## Compile Cache
+Unknown fields are rejected.
 
-- Location: `$HOME/.beeno/cache/compile`
-- Key fields:
-  - source content hash
-  - source id
-  - language hint
-  - provider
-  - model
-  - prompt version (`m1-v1`)
+## Progress Modes
 
-## Testing Strategy
+`RunOptions` now carries:
+- `ProgressMode::Silent`
+- `ProgressMode::Minimal`
+- `ProgressMode::Verbose`
 
-Required CI tier (offline, deterministic):
+Behavior:
+- `Silent`: no runtime status logs.
+- `Minimal`: shows compile/execute status for LLM path.
+- `Verbose`: detailed phase-by-phase diagnostics.
 
-- Unit tests for engine behavior, compiler routing, provider routing, normalization, cache behavior.
-- Integration-style tests for run flow and failure behavior.
-- CLI tests for JS execution, eval output, and missing API key failure path.
+## Provider Routing
 
-Optional/scheduled live tier:
+Auto mode remains local-first:
+1. Try Ollama if reachable.
+2. Fallback to OpenAI-compatible provider.
 
-- Ignored tests in provider crates gated by `BEENO_RUN_LIVE_TESTS=1`.
-- Ollama and OpenAI-compatible live translation checks.
+Routing errors are now rendered as readable multi-line attempt summaries.
 
-## Deferred Work
+## Dev Ergonomics
 
-- Node compatibility shims (`node:*`).
-- Permission flags and host API capability model.
-- Module graph/import execution.
-- Advanced diagnostics/source maps.
+Cargo aliases in `.cargo/config.toml`:
+- `cargo beeno ...`
+- `cargo btest`
+
+## Next Major Milestone
+
+Engine migration from Boa to V8 (`deno_core` / `rusty_v8`) while preserving current trait boundaries and UX surface.

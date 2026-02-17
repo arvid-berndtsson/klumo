@@ -119,12 +119,14 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "beeno-compiler",
+ "beeno-config",
  "beeno-core",
  "beeno-engine",
  "beeno-llm",
  "beeno-llm-ollama",
  "beeno-llm-openai",
  "clap",
+ "insta",
  "predicates",
  "tempfile",
 ]
@@ -140,6 +142,16 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "beeno-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
@@ -167,7 +179,6 @@ name = "beeno-llm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "thiserror",
 ]
 
 [[package]]

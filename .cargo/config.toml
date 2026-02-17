@@ -1,0 +1,3 @@
+[alias]
+beeno = "run -p beeno --"
+btest = "test --workspace"

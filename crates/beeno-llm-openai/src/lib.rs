@@ -11,13 +11,17 @@ pub struct OpenAiCompatibleClient {
 }
 
 impl OpenAiCompatibleClient {
+    pub fn from_parts(base_url: String, api_key: String) -> Self {
+        Self { base_url, api_key }
+    }
+
     pub fn from_env() -> Result<Self> {
         let base_url = std::env::var("OPENAI_BASE_URL")
             .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
         let api_key = std::env::var("OPENAI_API_KEY")
             .context("OPENAI_API_KEY is required for OpenAI-compatible provider")?;
 
-        Ok(Self { base_url, api_key })
+        Ok(Self::from_parts(base_url, api_key))
     }
 }
 

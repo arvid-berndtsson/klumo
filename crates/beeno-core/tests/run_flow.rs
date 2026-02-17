@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use beeno_compiler::{CompileCache, CompileResult, CompilerRouter, SourceKind};
-use beeno_core::{RunOptions, run_file};
+use beeno_core::{ProgressMode, RunOptions, run_file};
 use beeno_engine::BoaEngine;
 use beeno_llm::{
     LlmTranslateRequest, LlmTranslateResponse, Provider, ProviderDescriptor, ProviderSelection,
@@ -77,7 +77,7 @@ fn options() -> RunOptions {
         print_js: false,
         provider_selection: ProviderSelection::Auto,
         model_override: None,
-        verbose: false,
+        progress_mode: ProgressMode::Silent,
     }
 }
 
