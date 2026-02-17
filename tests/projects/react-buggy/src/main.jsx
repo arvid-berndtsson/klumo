@@ -10,3 +10,4 @@ function bootstrap() {
 }
 
 bootstrap(
+bootstrap();

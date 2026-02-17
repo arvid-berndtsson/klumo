@@ -26,7 +26,6 @@ use std::thread;
 use std::time::Duration;
 
 const REPL_HISTORY_LIMIT: usize = 20;
-const REPL_SELF_HEAL_ATTEMPTS: usize = 2;
 const DEFAULT_WEB_HOST: &str = "127.0.0.1";
 const DEFAULT_WEB_PORT: u16 = 4173;
 
@@ -389,6 +388,31 @@ REPAIR REQUIREMENTS\n\
         js_section,
         error_text
     )
+}
+
+fn repl_self_heal_limit() -> Option<usize> {
+    let raw = match std::env::var("BEENO_REPL_SELF_HEAL_MAX_ATTEMPTS") {
+        Ok(value) => value,
+        Err(_) => return None,
+    };
+    match raw.trim().parse::<usize>() {
+        Ok(0) => None,
+        Ok(limit) => Some(limit),
+        Err(_) => None,
+    }
+}
+
+fn can_continue_self_heal(attempt: usize, limit: Option<usize>) -> bool {
+    match limit {
+        Some(max) => attempt < max,
+        None => true,
+    }
+}
+
+fn is_non_recoverable_self_heal_error(error_text: &str) -> bool {
+    error_text.contains("OPENAI_API_KEY")
+        || error_text.contains("llm unavailable")
+        || error_text.contains("unknown provider")
 }
 
 fn compile_repl_heal_candidate(
@@ -1624,6 +1648,7 @@ fn repl_command(
         .clone()
         .unwrap_or_else(|| "pseudocode".to_string());
     let provider_selection = provider_to_selection(resolved.provider);
+    let self_heal_limit = repl_self_heal_limit();
 
     println!("Beeno REPL (M2). Type .help for commands, .exit to quit.");
     write_repl_web_status(engine.as_mut(), &web_server)?;
@@ -1701,11 +1726,11 @@ fn repl_command(
             Err(err) => {
                 let mut healed: Option<String> = None;
                 let initial_error = format!("{err:#}");
-                for attempt in 0..REPL_SELF_HEAL_ATTEMPTS {
+                let mut attempt = 0usize;
+                while can_continue_self_heal(attempt, self_heal_limit) {
                     eprintln!(
-                        "[beeno] repl translation failed, attempting self-heal ({}/{})",
+                        "[beeno] repl translation failed, attempting self-heal ({})",
                         attempt + 1,
-                        REPL_SELF_HEAL_ATTEMPTS
                     );
                     let heal_prompt =
                         build_repl_self_heal_request(trimmed, None, &initial_error, attempt);
@@ -1730,9 +1755,14 @@ fn repl_command(
                             break;
                         }
                         Err(heal_err) => {
-                            eprintln!("error: self-heal compile failed: {heal_err:#}");
+                            let heal_err_text = format!("{heal_err:#}");
+                            eprintln!("error: self-heal compile failed: {heal_err_text}");
+                            if is_non_recoverable_self_heal_error(&heal_err_text) {
+                                break;
+                            }
                         }
                     }
+                    attempt += 1;
                 }
                 match healed {
                     Some(js) => js,
@@ -1752,7 +1782,8 @@ fn repl_command(
 
         let mut eval_output = None;
         let mut final_runtime_error: Option<String> = None;
-        for attempt in 0..=REPL_SELF_HEAL_ATTEMPTS {
+        let mut attempt = 0usize;
+        while can_continue_self_heal(attempt, self_heal_limit) {
             match engine.as_mut().eval_script(&candidate_js, "<repl>") {
                 Ok(output) => {
                     eval_output = Some(output);
@@ -1760,14 +1791,9 @@ fn repl_command(
                 }
                 Err(err) => {
                     let err_text = format!("{err:#}");
-                    if attempt >= REPL_SELF_HEAL_ATTEMPTS {
-                        final_runtime_error = Some(err_text);
-                        break;
-                    }
                     eprintln!(
-                        "[beeno] repl runtime failed, attempting self-heal ({}/{})",
+                        "[beeno] repl runtime failed, attempting self-heal ({})",
                         attempt + 1,
-                        REPL_SELF_HEAL_ATTEMPTS
                     );
                     let heal_prompt = build_repl_self_heal_request(
                         trimmed,
@@ -1800,13 +1826,23 @@ fn repl_command(
                             }
                         }
                         Err(heal_err) => {
-                            eprintln!("error: self-heal compile failed: {heal_err:#}");
-                            final_runtime_error = Some(err_text);
-                            break;
+                            let heal_err_text = format!("{heal_err:#}");
+                            eprintln!("error: self-heal compile failed: {heal_err_text}");
+                            if is_non_recoverable_self_heal_error(&heal_err_text) {
+                                final_runtime_error = Some(err_text);
+                                break;
+                            }
                         }
                     }
                 }
             }
+            attempt += 1;
+        }
+        if eval_output.is_none() && final_runtime_error.is_none() {
+            final_runtime_error = Some(
+                "repl self-heal limit reached before successful execution (set BEENO_REPL_SELF_HEAL_MAX_ATTEMPTS=0 for unlimited retries)"
+                    .to_string(),
+            );
         }
 
         if let Some(output) = eval_output {
@@ -1852,7 +1888,8 @@ mod tests {
     use super::{
         DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, REPL_HISTORY_LIMIT, backup_path_for,
         build_repl_scope_context, build_repl_self_heal_request, build_self_heal_request,
-        is_self_heal_supported_source, parse_web_start, push_bounded, route_path,
+        can_continue_self_heal, is_non_recoverable_self_heal_error, is_self_heal_supported_source,
+        parse_web_start, push_bounded, route_path,
     };
     use std::collections::{HashSet, VecDeque};
     use std::path::Path;
@@ -1961,6 +1998,25 @@ mod tests {
         assert!(prompt.contains("Probable cause: Undefined variable or symbol usage."));
         assert!(prompt.contains("FULL ERROR OUTPUT"));
         assert!(prompt.contains("const x = y;"));
+    }
+
+    #[test]
+    fn self_heal_limit_predicate_handles_unlimited_and_bounded() {
+        assert!(can_continue_self_heal(0, None));
+        assert!(can_continue_self_heal(10, None));
+        assert!(can_continue_self_heal(0, Some(1)));
+        assert!(!can_continue_self_heal(1, Some(1)));
+    }
+
+    #[test]
+    fn non_recoverable_error_detection_matches_provider_failures() {
+        assert!(is_non_recoverable_self_heal_error(
+            "OPENAI_API_KEY is required for OpenAI-compatible translation"
+        ));
+        assert!(is_non_recoverable_self_heal_error("llm unavailable"));
+        assert!(!is_non_recoverable_self_heal_error(
+            "ReferenceError: value is not defined"
+        ));
     }
 }
 

@@ -192,7 +192,8 @@ Notes:
 - Static files are served directly from disk, so hot fixes are visible after browser refresh.
 - Registered API routes are available on the same daemon, enabling browser UI + local API prototyping in the same REPL session.
 - By default, start asks whether to open the page in the default browser unless `open`/`noOpenPrompt` override it.
-- REPL prompt failures now trigger automatic self-heal retries (translation + runtime) before surfacing a final error.
+- REPL prompt failures trigger automatic self-heal retries (translation + runtime) until success, except clearly non-recoverable provider/config errors.
+- Optional cap: set `BEENO_REPL_SELF_HEAL_MAX_ATTEMPTS=<n>` (`0` or unset means unlimited retries).
 
 ## Tests
 
