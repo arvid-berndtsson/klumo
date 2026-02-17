@@ -337,18 +337,54 @@ fn build_repl_self_heal_request(
     error_text: &str,
     attempt: usize,
 ) -> String {
-    let js_section = generated_js
-        .map(|js| format!("Previously generated JavaScript that failed:\n{js}\n\n"))
-        .unwrap_or_default();
+    let stage = if generated_js.is_some() {
+        "runtime execution after JS generation"
+    } else {
+        "translation/compile before execution"
+    };
+    let first_error_line = error_text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("unknown error");
+    let probable_cause = if error_text.contains("ReferenceError") {
+        "Undefined variable or symbol usage."
+    } else if error_text.contains("TypeError") {
+        "Invalid operation on value type (often null/undefined access)."
+    } else if error_text.contains("SyntaxError") {
+        "Generated JS contains invalid syntax."
+    } else if error_text.contains("failed evaluating") {
+        "Runtime engine rejected or failed while evaluating the generated script."
+    } else if error_text.contains("OPENAI_API_KEY") || error_text.contains("llm unavailable") {
+        "Provider/config issue prevented translation."
+    } else {
+        "General execution/translation failure; inspect exact error text."
+    };
+    let js_section = generated_js.map_or_else(
+        || "FAILED JAVASCRIPT:\n<none produced before failure>\n\n".to_string(),
+        |js| format!("FAILED JAVASCRIPT:\n{}\n\n", js),
+    );
     format!(
-        "Repair the REPL translation so it executes successfully in this session.\n\
+        "You are repairing a failed Beeno REPL attempt.\n\
+Goal: produce JavaScript that runs successfully in the current REPL session.\n\
 Return ONLY runnable JavaScript script statements. No markdown, no prose, no import/export.\n\
-Preserve user intent as much as possible.\n\
-Attempt: {}\n\
-Original REPL prompt:\n{}\n\n\
+Keep user intent and behavior as close as possible.\n\n\
+FAILURE REPORT\n\
+- Attempt number: {}\n\
+- Failure stage: {}\n\
+- Error summary: {}\n\
+- Probable cause: {}\n\n\
+USER PROMPT:\n{}\n\n\
 {}\
-Observed error:\n{}\n",
+FULL ERROR OUTPUT:\n{}\n\n\
+REPAIR REQUIREMENTS\n\
+1. Fix the direct cause of the error.\n\
+2. Keep side effects minimal and preserve existing REPL bindings when possible.\n\
+3. Output only executable script statements.\n",
         attempt + 1,
+        stage,
+        first_error_line,
+        probable_cause,
         user_prompt,
         js_section,
         error_text
@@ -1815,8 +1851,8 @@ fn repl_command(
 mod tests {
     use super::{
         DEFAULT_WEB_HOST, DEFAULT_WEB_PORT, REPL_HISTORY_LIMIT, backup_path_for,
-        build_repl_scope_context, build_self_heal_request, is_self_heal_supported_source,
-        parse_web_start, push_bounded, route_path,
+        build_repl_scope_context, build_repl_self_heal_request, build_self_heal_request,
+        is_self_heal_supported_source, parse_web_start, push_bounded, route_path,
     };
     use std::collections::{HashSet, VecDeque};
     use std::path::Path;
@@ -1910,6 +1946,21 @@ mod tests {
         assert!(prompt.contains("ReferenceError"));
         assert!(prompt.contains("console.log(1)"));
         assert!(prompt.contains("Return ONLY complete JavaScript source"));
+    }
+
+    #[test]
+    fn repl_self_heal_prompt_contains_structured_error_report() {
+        let prompt = build_repl_self_heal_request(
+            "print user profile",
+            Some("const x = y;"),
+            "failed evaluating <repl>: ReferenceError: y is not defined",
+            0,
+        );
+        assert!(prompt.contains("FAILURE REPORT"));
+        assert!(prompt.contains("Failure stage: runtime execution after JS generation"));
+        assert!(prompt.contains("Probable cause: Undefined variable or symbol usage."));
+        assert!(prompt.contains("FULL ERROR OUTPUT"));
+        assert!(prompt.contains("const x = y;"));
     }
 }
 
