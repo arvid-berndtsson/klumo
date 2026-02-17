@@ -105,6 +105,34 @@ fn parse_kind_hint(lang: Option<&str>) -> Option<SourceKind> {
     lang.map(SourceKind::from_hint)
 }
 
+fn sanitize_repl_javascript(input: &str) -> String {
+    let mut output = String::new();
+    for line in input.lines() {
+        let trimmed = line.trim_start();
+
+        if let Some(rest) = trimmed.strip_prefix("export default ") {
+            output.push_str(rest);
+            output.push('\n');
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("export ") {
+            output.push_str(rest);
+            output.push('\n');
+            continue;
+        }
+
+        if trimmed.starts_with("import ") {
+            continue;
+        }
+
+        output.push_str(line);
+        output.push('\n');
+    }
+
+    output.trim_end().to_string()
+}
+
 fn provider_to_selection(provider: ProviderSetting) -> ProviderSelection {
     match provider {
         ProviderSetting::Auto => ProviderSelection::Auto,
@@ -280,13 +308,19 @@ fn repl_command(config: Option<PathBuf>) -> Result<()> {
 
         match compiled {
             Ok(compiled) => {
+                let sanitized_js = sanitize_repl_javascript(&compiled.javascript);
+                if sanitized_js.trim().is_empty() {
+                    eprintln!("error: translated REPL code was empty after removing module syntax");
+                    continue;
+                }
+
                 if resolved.verbose || resolved.print_js {
                     println!("/* ===== generated JavaScript ===== */");
-                    println!("{}", compiled.javascript);
+                    println!("{}", sanitized_js);
                     println!("/* ===== end generated JavaScript ===== */");
                 }
 
-                match engine.as_mut().eval_script(&compiled.javascript, "<repl>") {
+                match engine.as_mut().eval_script(&sanitized_js, "<repl>") {
                     Ok(output) => {
                         if let Some(value) = output.value {
                             println!("{value}");

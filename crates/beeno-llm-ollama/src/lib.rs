@@ -83,10 +83,15 @@ fn build_prompt(req: &LlmTranslateRequest) -> String {
         .language_hint
         .as_ref()
         .map_or("unknown".to_string(), ToString::to_string);
+    let repl_rule = if req.source_id == "<repl>" {
+        "Interactive REPL mode: output plain JavaScript script statements only. Do not emit import/export declarations.\n"
+    } else {
+        ""
+    };
 
     format!(
-        "You are a strict transpiler. Return only runnable modern JavaScript (Node-style ESM), no prose.\\nSource id: {}\\nLanguage hint: {}\\nINPUT START\\n{}\\nINPUT END",
-        req.source_id, hint, req.source_text
+        "You are a strict transpiler. Return only runnable modern JavaScript (Node-style ESM), no prose.\\n{}Source id: {}\\nLanguage hint: {}\\nINPUT START\\n{}\\nINPUT END",
+        repl_rule, req.source_id, hint, req.source_text
     )
 }
 
