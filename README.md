@@ -7,6 +7,9 @@ Klumo is a standalone runtime in Rust with LLM-assisted compilation for non-JS i
 ## Current UX (M2)
 
 - `klumo run <file>` is the primary command.
+- `klumo <file>` also works directly (runtime-style, like `node <file>`).
+- `klumo install` (or `klumo i`) installs dependencies from `klumo.json`.
+- `klumo lint`, `klumo fmt`, and `klumo test` are built-in default commands.
 - Project defaults can live in `klumo.json`.
 - Common runs no longer need long flag lists.
 - Non-JS runs show minimal progress lines by default.
@@ -26,6 +29,7 @@ Klumo is a standalone runtime in Rust with LLM-assisted compilation for non-JS i
 
 ```bash
 cargo run -p klumo -- run examples/hello.js
+cargo run -p klumo -- examples/hello.js
 cargo run -p klumo -- bundle examples/hello.pseudocode --provider ollama --force-llm -o dist/hello.js
 cargo run -p klumo -- eval "1 + 2 + 3"
 cargo run -p klumo -- repl
@@ -112,6 +116,46 @@ Behavior:
 - Default output path is `<input>.bundle.js` when `--output` is not provided.
 - Uses the same config/env/provider resolution as `klumo run`.
 - Produces JS artifacts you can run later with `klumo run <bundle.js>` without LLM translation.
+
+## `klumo install` / `klumo i`
+
+Install project dependencies defined in `klumo.json`.
+
+Behavior:
+- If `scripts.install` exists in `klumo.json`, Klumo runs that script.
+- Otherwise, Klumo installs each dependency via `deno cache jsr:<name>@<version>`.
+
+Examples:
+
+```bash
+klumo install
+klumo i
+klumo i --dry-run
+```
+
+## Default Commands
+
+Klumo now reserves these built-ins:
+
+- `run`
+- `bundle`
+- `install` / `i`
+- `lint`
+- `fmt`
+- `test`
+- `eval`
+- `repl`
+
+If `klumo.json` contains `scripts` entries with those names, Klumo prints a warning and keeps the built-in command behavior.
+
+Default command behavior:
+- `klumo lint`: runs `scripts.lint` if present, otherwise `cargo clippy --all-targets --all-features`.
+- `klumo fmt`: runs `scripts.fmt` if present, otherwise `cargo fmt --all` (plus `--check` when requested).
+- `klumo test`: runs `scripts.test` if present, otherwise `cargo test`.
+
+Tool selection:
+- JS/TS project roots (for example `deno.json`/`deno.jsonc`, or `package.json` without `Cargo.toml`) prefer Deno for `lint`/`fmt`/`test`.
+- Rust workspace roots default to Cargo for those commands.
 
 ## `klumo.json` (project defaults)
 

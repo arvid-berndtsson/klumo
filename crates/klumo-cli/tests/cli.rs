@@ -64,6 +64,19 @@ fn run_js_file_works_without_llm() {
 }
 
 #[test]
+fn bare_file_argument_runs_like_runtime() {
+    let dir = tempdir().expect("tempdir should work");
+    let path = dir.path().join("hello.js");
+    fs::write(&path, "21 + 21").expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("klumo"))
+        .args([path.to_str().expect("path utf8")])
+        .assert()
+        .success()
+        .stdout(contains("42"));
+}
+
+#[test]
 fn run_script_name_from_klumo_json_executes_script() {
     let dir = tempdir().expect("tempdir should work");
     let config = dir.path().join("klumo.json");
@@ -107,6 +120,79 @@ fn run_file_target_with_scripts_present_runs_file() {
         .assert()
         .success()
         .stdout(contains("42"));
+}
+
+#[test]
+fn install_with_no_dependencies_reports_noop() {
+    let dir = tempdir().expect("tempdir should work");
+    let config = dir.path().join("klumo.json");
+    fs::write(&config, r#"{"name":"demo","version":"0.0.0"}"#).expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("klumo"))
+        .args(["install"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("No dependencies found in klumo.json."));
+}
+
+#[test]
+fn install_alias_i_uses_same_install_flow() {
+    let dir = tempdir().expect("tempdir should work");
+    let config = dir.path().join("klumo.json");
+    fs::write(
+        &config,
+        r#"{
+  "dependencies": {
+    "@arvid/is-char": "latest"
+  }
+}"#,
+    )
+    .expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("klumo"))
+        .args(["i", "--dry-run"])
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stdout(contains("dry-run: deno cache jsr:@arvid/is-char@latest"));
+}
+
+#[test]
+fn warns_when_klumo_json_has_reserved_script_names() {
+    let dir = tempdir().expect("tempdir should work");
+    let config = dir.path().join("klumo.json");
+    fs::write(
+        &config,
+        r#"{
+  "scripts": {
+    "lint": "echo custom-lint"
+  }
+}"#,
+    )
+    .expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("klumo"))
+        .write_stdin(".exit\n")
+        .current_dir(dir.path())
+        .assert()
+        .success()
+        .stderr(contains("[klumo] warning: scripts.lint"));
+}
+
+#[test]
+fn lint_is_treated_as_builtin_command_not_file_argument() {
+    let dir = tempdir().expect("tempdir should work");
+    let path = dir.path().join("lint");
+    fs::write(&path, "1 + 1").expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("klumo"))
+        .args(["lint"])
+        .env("PATH", "")
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(contains("failed running cargo clippy"));
 }
 
 #[test]
