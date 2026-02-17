@@ -21,11 +21,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             archive_ext: tar.gz
             bin_ext: ""
-          - os: macos-13
+          - os: macos-14
             target: x86_64-apple-darwin
             archive_ext: tar.gz
             bin_ext: ""
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             archive_ext: tar.gz
             bin_ext: ""
@@ -82,7 +82,18 @@ jobs:
         with:
           path: artifacts
 
+      - name: Generate checksums
+        run: |
+          : > checksums.txt
+          while IFS= read -r -d '' file; do
+            hash="$(sha256sum "$file" | awk '{print $1}')"
+            name="$(basename "$file")"
+            printf "%s  %s\n" "$hash" "$name" >> checksums.txt
+          done < <(find artifacts -type f -name "beeno-*" -print0)
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/beeno-*
+          files: |
+            artifacts/**/beeno-*
+            checksums.txt

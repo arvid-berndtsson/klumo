@@ -31,6 +31,37 @@ cargo run -p beeno -- eval "1 + 2 + 3"
 cargo run -p beeno -- repl
 ```
 
+## Install (curl)
+
+Install latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/beeno/main/install.sh | sh
+```
+
+Install specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/beeno/main/install.sh | BEENO_VERSION=v0.1.0 sh
+```
+
+Update to latest:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/beeno/main/install.sh | sh -s -- --update
+```
+
+Uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/arvid-berndtsson/beeno/main/install.sh | sh -s -- --uninstall
+```
+
+Optional environment variables:
+- `BEENO_GITHUB_REPO` (default `arvid-berndtsson/beeno`)
+- `BEENO_VERSION` (default `latest`)
+- `BEENO_INSTALL_DIR` (default `~/.local/bin`)
+
 If no input file is provided (`beeno` or `beeno run`), Beeno starts REPL automatically.
 REPL input is treated as pseudocode and sent through the LLM compile path before execution.
 
