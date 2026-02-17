@@ -15,6 +15,27 @@ fn eval_prints_result() {
 }
 
 #[test]
+fn no_args_enters_repl() {
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .write_stdin("1+1\n.exit\n")
+        .assert()
+        .success()
+        .stdout(contains("Beeno REPL"))
+        .stdout(contains("2"));
+}
+
+#[test]
+fn run_without_file_enters_repl() {
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .args(["run"])
+        .write_stdin("3+4\n.exit\n")
+        .assert()
+        .success()
+        .stdout(contains("Beeno REPL"))
+        .stdout(contains("7"));
+}
+
+#[test]
 fn run_js_file_works_without_llm() {
     let dir = tempdir().expect("tempdir should work");
     let path = dir.path().join("hello.js");

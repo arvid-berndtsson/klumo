@@ -37,14 +37,14 @@ impl ProviderArg {
 #[command(name = "beeno", version, about = "Beeno runtime (M2 UX)")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Run a file in Beeno.
     Run {
-        file: PathBuf,
+        file: Option<PathBuf>,
         #[arg(long)]
         config: Option<PathBuf>,
         #[arg(long)]
@@ -260,7 +260,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Run {
+        Some(Commands::Run {
             file,
             config,
             lang,
@@ -272,20 +272,26 @@ fn main() -> Result<()> {
             provider,
             ollama_url,
             model,
-        } => run_command(
-            file,
-            config,
-            lang,
-            print_js,
-            no_cache,
-            force_llm,
-            no_progress,
-            verbose,
-            provider,
-            ollama_url,
-            model,
-        ),
-        Commands::Eval { code } => eval_command(code),
-        Commands::Repl => repl_command(),
+        }) => {
+            if let Some(path) = file {
+                run_command(
+                    path,
+                    config,
+                    lang,
+                    print_js,
+                    no_cache,
+                    force_llm,
+                    no_progress,
+                    verbose,
+                    provider,
+                    ollama_url,
+                    model,
+                )
+            } else {
+                repl_command()
+            }
+        }
+        Some(Commands::Eval { code }) => eval_command(code),
+        Some(Commands::Repl) | None => repl_command(),
     }
 }
