@@ -1,0 +1,16 @@
+{
+  "name": "smart-node",
+  "version": "0.1.0",
+  "description": "Node-like runtime that translates arbitrary input to JavaScript with an LLM, then executes it.",
+  "type": "module",
+  "bin": {
+    "smnode": "./bin/smnode.mjs"
+  },
+  "scripts": {
+    "start": "node ./bin/smnode.mjs",
+    "run:example": "node ./bin/smnode.mjs ./examples/hello.pseudocode"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

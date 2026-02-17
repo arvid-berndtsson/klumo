@@ -1,0 +1,3 @@
+write "Hello from pseudocode"
+set n to 5
+write "n * 2 = " + (n * 2)
