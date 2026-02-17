@@ -10,6 +10,7 @@ Deliver a Deno-like daily workflow while keeping Beeno standalone and LLM-capabl
 - `beeno-config`: `beeno.json` loading + env + CLI merge.
 - `beeno-core`: run orchestration (`load -> compile -> execute`) and progress modes.
 - `beeno-engine`: `JsEngine` trait + `BoaEngine` backend.
+- `beeno-engine-v8`: V8 backend scaffold behind `JsEngine`.
 - `beeno-compiler`: source routing + provider/model-aware compile cache.
 - `beeno-llm`: provider contracts + routing + normalization.
 - `beeno-llm-ollama`: local Ollama adapter.
@@ -60,4 +61,4 @@ Cargo aliases in `.cargo/config.toml`:
 
 ## Next Major Milestone
 
-Engine migration from Boa to V8 (`deno_core` / `rusty_v8`) while preserving current trait boundaries and UX surface.
+Engine migration from Boa to full V8 implementation (`deno_core` / `rusty_v8`) while preserving current trait boundaries and UX surface.

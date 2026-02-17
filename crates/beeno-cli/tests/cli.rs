@@ -170,3 +170,45 @@ fn snapshot_llm_failure_stderr() {
         .replace(source.to_str().expect("path utf8"), "<TMP>/hello.pseudo");
     assert_snapshot!("llm_failure_stderr", stderr);
 }
+
+#[test]
+fn selecting_v8_engine_reports_scaffold_state() {
+    let output = Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .env("BEENO_ENGINE", "v8")
+        .args(["eval", "1+1"])
+        .output()
+        .expect("command should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("V8 backend is scaffolded but not implemented yet"));
+}
+
+
+#[test]
+fn config_openai_api_key_is_used() {
+    let dir = tempdir().expect("tempdir should work");
+    let source = dir.path().join("hello.pseudo");
+    let config = dir.path().join("beeno.json");
+
+    fs::write(&source, "write hello").expect("write should work");
+    fs::write(
+        &config,
+        r#"{
+  "provider":"openai",
+  "force_llm":true,
+  "openai_base_url":"http://127.0.0.1:1",
+  "openai_api_key":"dummy-from-config"
+}"#,
+    )
+    .expect("write should work");
+
+    Command::new(assert_cmd::cargo::cargo_bin!("beeno"))
+        .env_remove("OPENAI_API_KEY")
+        .current_dir(dir.path())
+        .args(["run", source.to_str().expect("path utf8")])
+        .assert()
+        .failure()
+        .stderr(contains("failed calling OpenAI-compatible endpoint"))
+        .stderr(contains("OPENAI_API_KEY is required").not());
+}

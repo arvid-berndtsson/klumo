@@ -27,6 +27,7 @@ pub struct FileConfig {
     pub ollama_url: Option<String>,
     pub ollama_model: Option<String>,
     pub openai_base_url: Option<String>,
+    pub openai_api_key: Option<String>,
     pub openai_model: Option<String>,
     pub lang: Option<String>,
     pub force_llm: Option<bool>,
@@ -42,6 +43,7 @@ pub struct EnvConfig {
     pub ollama_url: Option<String>,
     pub ollama_model: Option<String>,
     pub openai_base_url: Option<String>,
+    pub openai_api_key: Option<String>,
     pub openai_model: Option<String>,
     pub lang: Option<String>,
     pub force_llm: Option<bool>,
@@ -70,6 +72,7 @@ pub struct RunDefaults {
     pub ollama_url: String,
     pub ollama_model: String,
     pub openai_base_url: String,
+    pub openai_api_key: Option<String>,
     pub openai_model: String,
     pub lang: Option<String>,
     pub force_llm: bool,
@@ -86,6 +89,7 @@ impl Default for RunDefaults {
             ollama_url: "http://127.0.0.1:11434".to_string(),
             ollama_model: "qwen2.5-coder:7b".to_string(),
             openai_base_url: "https://api.openai.com/v1".to_string(),
+            openai_api_key: None,
             openai_model: "gpt-4.1-mini".to_string(),
             lang: None,
             force_llm: false,
@@ -125,6 +129,9 @@ impl EnvConfig {
             ollama_url: env::var("BEENO_OLLAMA_URL").ok(),
             ollama_model: env::var("BEENO_OLLAMA_MODEL").ok(),
             openai_base_url: env::var("OPENAI_BASE_URL").ok(),
+            openai_api_key: env::var("OPENAI_API_KEY")
+                .ok()
+                .or_else(|| env::var("BEENO_OPENAI_API_KEY").ok()),
             openai_model: env::var("BEENO_MODEL").ok(),
             lang: env::var("BEENO_LANG").ok(),
             force_llm: env::var("BEENO_FORCE_LLM").ok().and_then(|v| parse_bool(&v)),
@@ -170,6 +177,12 @@ pub fn resolve_run_defaults(
         .clone()
         .or_else(|| file_cfg.and_then(|c| c.openai_base_url.clone()))
         .unwrap_or(base.openai_base_url);
+
+    let openai_api_key = env_cfg
+        .openai_api_key
+        .clone()
+        .or_else(|| file_cfg.and_then(|c| c.openai_api_key.clone()))
+        .or(base.openai_api_key);
 
     let openai_model = cli
         .model
@@ -223,6 +236,7 @@ pub fn resolve_run_defaults(
         ollama_url,
         ollama_model,
         openai_base_url,
+        openai_api_key,
         openai_model,
         lang,
         force_llm,
@@ -311,12 +325,14 @@ mod tests {
             provider: Some(ProviderSetting::Openai),
             progress: Some(ProgressSetting::Verbose),
             force_llm: Some(false),
+            openai_api_key: Some("file-key".to_string()),
             ..FileConfig::default()
         };
 
         let env_cfg = EnvConfig {
             provider: Some(ProviderSetting::Ollama),
             force_llm: Some(false),
+            openai_api_key: Some("env-key".to_string()),
             ..EnvConfig::default()
         };
 
@@ -331,5 +347,6 @@ mod tests {
         assert_eq!(resolved.provider, ProviderSetting::Auto);
         assert!(resolved.force_llm);
         assert_eq!(resolved.progress, ProgressSetting::Silent);
+        assert_eq!(resolved.openai_api_key.as_deref(), Some("env-key"));
     }
 }

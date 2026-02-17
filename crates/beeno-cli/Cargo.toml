@@ -14,6 +14,7 @@ beeno-config = { path = "../beeno-config" }
 beeno-compiler = { path = "../beeno-compiler" }
 beeno-core = { path = "../beeno-core" }
 beeno-engine = { path = "../beeno-engine" }
+beeno-engine-v8 = { path = "../beeno-engine-v8" }
 beeno-llm = { path = "../beeno-llm" }
 beeno-llm-ollama = { path = "../beeno-llm-ollama" }
 beeno-llm-openai = { path = "../beeno-llm-openai" }

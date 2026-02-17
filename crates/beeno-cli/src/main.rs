@@ -6,6 +6,7 @@ use beeno_config::{
 };
 use beeno_core::{ProgressMode, RunOptions, eval_inline, run_file};
 use beeno_engine::{BoaEngine, JsEngine};
+use beeno_engine_v8::V8Engine;
 use beeno_llm::{
     LlmClient, LlmTranslateRequest, ProviderSelection, ProviderRouter, ReachabilityProbe,
 };
@@ -120,6 +121,17 @@ fn resolved_progress_mode(progress: ProgressSetting, verbose: bool) -> ProgressM
     }
 }
 
+fn build_engine() -> Result<Box<dyn JsEngine>> {
+    let selected = std::env::var("BEENO_ENGINE").unwrap_or_else(|_| "boa".to_string());
+    match selected.trim().to_ascii_lowercase().as_str() {
+        "boa" => Ok(Box::new(BoaEngine::new())),
+        "v8" => Ok(Box::new(V8Engine::new()?)),
+        other => Err(anyhow!(
+            "unknown engine '{other}'. Supported: 'boa', 'v8'"
+        )),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_command(
     file: PathBuf,
@@ -154,8 +166,9 @@ fn run_command(
 
     let ollama_client = OllamaClient::new(resolved.ollama_url.clone())?;
     let openai_client = MaybeOpenAiClient {
-        inner: std::env::var("OPENAI_API_KEY")
-            .ok()
+        inner: resolved
+            .openai_api_key
+            .clone()
             .map(|api_key| OpenAiCompatibleClient::from_parts(resolved.openai_base_url.clone(), api_key)),
     };
 
@@ -185,8 +198,8 @@ fn run_command(
         progress_mode: resolved_progress_mode(resolved.progress, resolved.verbose),
     };
 
-    let mut engine = BoaEngine::new();
-    let outcome = run_file(&mut engine, &compiler, &file, &options)
+    let mut engine = build_engine()?;
+    let outcome = run_file(engine.as_mut(), &compiler, &file, &options)
         .with_context(|| format!("failed running {}", file.display()))?;
 
     if let Some(value) = outcome.eval.value {
@@ -197,8 +210,8 @@ fn run_command(
 }
 
 fn eval_command(code: String) -> Result<()> {
-    let mut engine = BoaEngine::new();
-    let out = eval_inline(&mut engine, &code)?;
+    let mut engine = build_engine()?;
+    let out = eval_inline(engine.as_mut(), &code)?;
     if let Some(value) = out.value {
         println!("{value}");
     }
@@ -206,7 +219,7 @@ fn eval_command(code: String) -> Result<()> {
 }
 
 fn repl_command() -> Result<()> {
-    let mut engine = BoaEngine::new();
+    let mut engine = build_engine()?;
     let mut line = String::new();
 
     println!("Beeno REPL (M2). Type .exit to quit.");
@@ -230,7 +243,7 @@ fn repl_command() -> Result<()> {
             break;
         }
 
-        match engine.eval_script(trimmed, "<repl>") {
+        match engine.as_mut().eval_script(trimmed, "<repl>") {
             Ok(output) => {
                 if let Some(value) = output.value {
                     println!("{value}");

@@ -37,7 +37,7 @@ pub fn run_file<E, C>(
     options: &RunOptions,
 ) -> Result<RunOutcome>
 where
-    E: JsEngine,
+    E: JsEngine + ?Sized,
     C: Compiler,
 {
     if matches!(options.progress_mode, ProgressMode::Verbose) {
@@ -60,13 +60,13 @@ where
         no_cache: options.no_cache,
     })?;
 
-    if options.print_js {
+    let llm_path = compile.metadata.provider.is_some();
+    if options.print_js || (matches!(options.progress_mode, ProgressMode::Verbose) && llm_path) {
         println!("/* ===== generated JavaScript ===== */");
         println!("{}", compile.javascript);
         println!("/* ===== end generated JavaScript ===== */");
     }
 
-    let llm_path = compile.metadata.provider.is_some();
     match options.progress_mode {
         ProgressMode::Silent => {}
         ProgressMode::Minimal => {
@@ -100,6 +100,6 @@ where
     Ok(RunOutcome { compile, eval })
 }
 
-pub fn eval_inline<E: JsEngine>(engine: &mut E, code: &str) -> Result<EvalOutput> {
+pub fn eval_inline<E: JsEngine + ?Sized>(engine: &mut E, code: &str) -> Result<EvalOutput> {
     engine.eval_script(code, "<eval>")
 }

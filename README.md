@@ -62,6 +62,7 @@ Example:
   "ollama_url": "http://127.0.0.1:11434",
   "ollama_model": "qwen2.5-coder:7b",
   "openai_base_url": "https://api.openai.com/v1",
+  "openai_api_key": "sk-...",
   "openai_model": "gpt-4.1-mini",
   "lang": "pseudocode",
   "force_llm": true,
@@ -80,12 +81,16 @@ Lookup order:
 Precedence:
 `CLI flags > env vars > beeno.json > defaults`
 
+Note: prefer environment variables for secrets in shared repos.
+
 ## Environment Variables
 
+- `BEENO_ENGINE` (`boa` default, `v8` experimental scaffold)
 - `BEENO_PROVIDER`
 - `BEENO_OLLAMA_URL`
 - `BEENO_OLLAMA_MODEL`
 - `OPENAI_API_KEY`
+- `BEENO_OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
 - `BEENO_MODEL`
 - `BEENO_LANG`
@@ -105,6 +110,8 @@ Controls:
 - `--verbose` for detailed trace.
 - `--no-progress` to suppress status lines.
 
+When `--verbose` is used and the run goes through LLM compilation, Beeno prints the generated JavaScript before execution.
+
 ## Tests
 
 ```bash
@@ -117,6 +124,6 @@ Live provider tests remain ignored by default and are gated by:
 
 ## Deferred
 
-- V8 migration (`deno_core` / `rusty_v8`) is planned next.
+- V8 migration (`deno_core` / `rusty_v8`) is scaffolded via `crates/beeno-engine-v8` and planned for full implementation next.
 - Node compatibility shims are not implemented yet.
 - Module graph/import loader and permission flags are deferred.

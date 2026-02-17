@@ -80,6 +80,8 @@ impl JsEngine for BoaEngine {
             .eval(Source::from_bytes(source))
             .map_err(|err| anyhow!("failed evaluating {source_name}: {err}"))?;
 
+        self.flush_console_logs();
+
         if result.is_undefined() {
             return Ok(EvalOutput {
                 value: None,
@@ -91,8 +93,6 @@ impl JsEngine for BoaEngine {
             .to_string(&mut self.ctx)
             .map_err(|err| anyhow!("failed converting JS value to string: {err}"))?
             .to_std_string_escaped();
-
-        self.flush_console_logs();
 
         Ok(EvalOutput {
             value: Some(rendered),
@@ -137,5 +137,19 @@ mod tests {
             .eval_script("console.log('hello'); 7", "<test>")
             .expect("eval should pass");
         assert_eq!(output.value.as_deref(), Some("7"));
+    }
+
+    #[test]
+    fn console_logs_flush_on_undefined_result() {
+        let mut engine = BoaEngine::new();
+        let output = engine
+            .eval_script("console.log('hello from undefined');", "<test>")
+            .expect("eval should pass");
+        assert_eq!(output.value, None);
+
+        let length = engine
+            .eval_script("globalThis.__beeno_console_logs.length", "<test>")
+            .expect("eval should pass");
+        assert_eq!(length.value.as_deref(), Some("0"));
     }
 }

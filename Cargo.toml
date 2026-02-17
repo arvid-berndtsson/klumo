@@ -4,6 +4,7 @@ members = [
   "crates/beeno-config",
   "crates/beeno-core",
   "crates/beeno-engine",
+  "crates/beeno-engine-v8",
   "crates/beeno-compiler",
   "crates/beeno-llm",
   "crates/beeno-llm-ollama",

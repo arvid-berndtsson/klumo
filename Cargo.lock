@@ -122,6 +122,7 @@ dependencies = [
  "beeno-config",
  "beeno-core",
  "beeno-engine",
+ "beeno-engine-v8",
  "beeno-llm",
  "beeno-llm-ollama",
  "beeno-llm-openai",
@@ -172,6 +173,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "boa_engine",
+]
+
+[[package]]
+name = "beeno-engine-v8"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "beeno-engine",
 ]
 
 [[package]]
